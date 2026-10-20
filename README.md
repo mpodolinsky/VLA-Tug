@@ -22,6 +22,16 @@ Python 3.11.
 pip install -e ".[dev]"
 ```
 
+## Getting the data
+
+Each dataset also holds the pooled features in `pooled/features.npz`: one float32 array of shape (steps, 6144) per episode, the mean over the base-image, wrist-image and language tokens. This fetches them, the manifest and (for LIBERO-X) the split files into `data/<dataset>/`:
+
+```
+python -m cli.download libero10_groot      # or libero10_pi05, liberox_groot
+```
+
+The pooled features can also be recomputed from the raw rollouts with `python -m cli.prepare`; see [`data/README.md`](data/README.md).
+
 ## Tests
 
 ```

@@ -10,7 +10,7 @@ Local data, ignored by git. One folder per dataset (`libero10_groot`, `libero10_
                  columns [base image | wrist image | language] of 2048 each
 ```
 
-`manifest.csv` and `splits/` are copied unchanged from the Hub datasets. `features.npz` is produced from the raw rollouts of the Hub datasets:
+`python -m cli.download <dataset>` fetches all of it from the Hub (`manifest.csv` and `splits/` unchanged, and the pooled features, which the Hub datasets hold as `pooled/features.npz`). `features.npz` can also be produced from the raw rollouts of the Hub datasets:
 
 ```
 python -m cli.prepare <dataset> <folder holding the raw rollouts, one <dir>/rollout.npz per episode>
