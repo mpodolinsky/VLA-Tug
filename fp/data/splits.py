@@ -1,0 +1,95 @@
+"""Train / val / calibration / seen-eval / unseen episode splits (pure logic).
+
+One algorithm for every dataset:
+  1. episodes of the held-out groups (tasks, signatures or skills) go to ``unseen``;
+  2. the rest is split 65/15/20 into train / val / test, stratified by (outcome, condition);
+  3. the test part is halved into ``calibration`` and ``seen`` with the same strata.
+``condition`` is the scene variant (LIBERO-10) or the level (LIBERO-X). Same seed, same split.
+"""
+
+import random
+from dataclasses import dataclass
+from typing import Callable, Hashable
+
+from .manifest import Episode
+
+FRACTIONS = (("train", 0.65), ("val", 0.15), ("test", 0.20))
+N_UNSEEN_TASKS = 3  # LIBERO-10: tasks held out per seed
+
+
+@dataclass(frozen=True)
+class Split:
+    name: str  # e.g. "paper_seed0", "skill_pick", "task_seed1"
+    train: list[str]
+    val: list[str]
+    calibration: list[str]  # first half of the seen-task test part (fits the calibrators)
+    seen: list[str]  # second half: seen tasks, never used by a calibrator
+    unseen: list[str]  # every episode of the held-out groups
+    seed: int  # the seed the split was drawn with; also the shuffle seed of the SAFE band calibrated on this split
+
+
+def stratum(e: Episode) -> tuple[bool, str]:
+    return (e.success, e.condition)
+
+
+def stratified_partition(
+    episodes: list[Episode],
+    fractions: tuple[tuple[str, float], ...],
+    seed: int,
+) -> dict[str, list[str]]:
+    """Per stratum: sort keys, shuffle with Random(seed), cut at rounded fractions; the last part takes the remainder."""
+    rng = random.Random(seed)
+    strata: dict[Hashable, list[str]] = {}
+    for e in episodes:
+        strata.setdefault(stratum(e), []).append(e.key)
+    out: dict[str, list[str]] = {name: [] for name, _ in fractions}
+    last = fractions[-1][0]
+    for s in sorted(strata):
+        keys = sorted(strata[s])
+        rng.shuffle(keys)
+        n, pos = len(keys), 0
+        for name, frac in fractions:
+            cnt = n - pos if name == last else min(int(round(frac * n)), n - pos)
+            out[name].extend(keys[pos : pos + cnt])
+            pos += cnt
+    return out
+
+
+def build_split(
+    episodes: list[Episode],
+    name: str,
+    seed: int,
+    group_of: Callable[[Episode], str],
+    unseen_groups: set[str],
+    calibration_fraction: float = 0.5,
+) -> Split:
+    unseen = [e for e in episodes if group_of(e) in unseen_groups]
+    seen = [e for e in episodes if group_of(e) not in unseen_groups]
+    if not unseen:
+        raise ValueError(f"no episode belongs to the held-out groups {sorted(unseen_groups)}")
+    parts = stratified_partition(seen, FRACTIONS, seed)
+    test = [e for e in seen if e.key in set(parts["test"])]
+    halves = stratified_partition(
+        test, (("calibration", calibration_fraction), ("seen", 1.0 - calibration_fraction)), seed
+    )
+    return Split(
+        name=name,
+        train=sorted(parts["train"]),
+        val=sorted(parts["val"]),
+        calibration=sorted(halves["calibration"]),
+        seen=sorted(halves["seen"]),
+        unseen=sorted(e.key for e in unseen),
+        seed=seed,
+    )
+
+
+def pick_unseen_tasks(tasks: list[str], seed: int, n: int = N_UNSEEN_TASKS) -> set[str]:
+    """LIBERO-10 rule: shuffle the sorted task names with Random(seed + 1000) and take the first n."""
+    names = sorted(set(tasks))
+    random.Random(seed + 1000).shuffle(names)
+    return set(names[:n])
+
+
+def make_splits(dataset: str) -> list[Split]:
+    """All splits registered for the dataset's ``split_kinds``. Needs the manifests copied into data/ first."""
+    raise NotImplementedError("wired up once the manifests are copied into data/")
