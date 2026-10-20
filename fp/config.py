@@ -44,8 +44,8 @@ class DatasetSpec:
 REGISTRY: dict[str, DatasetSpec] = {
     s.name: s
     for s in (
-        DatasetSpec("libero10_groot", "groot", "libero10_occ", 8, 20.0, 6, True, ("paper", "rotating"), "podolinsky/groot-libero-10-features-v3"),
-        DatasetSpec("libero10_pi05", "pi05", "libero10_occ", 5, 20.0, 10, True, ("paper", "rotating"), "podolinsky/pi0.5-libero-10-features-v3"),
+        DatasetSpec("libero10_groot", "groot", "libero10_occ", 8, 20.0, 6, True, ("paper",), "podolinsky/groot-libero-10-features-v3"),
+        DatasetSpec("libero10_pi05", "pi05", "libero10_occ", 5, 20.0, 10, True, ("paper",), "podolinsky/pi0.5-libero-10-features-v3"),
         DatasetSpec("liberox_groot", "groot", "liberox_level123", 8, 20.0, 6, True, ("task", "signature", "skill"), "podolinsky/gr00t-libero-x-features-v3"),
     )
 }

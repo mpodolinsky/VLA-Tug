@@ -12,6 +12,7 @@ import torch
 from scipy.spatial.distance import cdist
 from sklearn.metrics import roc_auc_score
 
+from fp import config
 from fp.baselines import distance as dist_mod
 from fp.baselines.distance import (DistanceScorer, compute_dist_closest_k_by_chunk, compute_euclid_dist, compute_mahala_dist)
 from fp.baselines.registry import METHODS, build
@@ -177,9 +178,10 @@ def test_errors():
         DistanceScorer("euclid", episodes, features, topk=10**6).fit(train, [])
 
 
-def test_registered_names_exist_and_wait_for_the_data_layer():
+def test_registered_names_exist_and_need_the_data_folder(tmp_path, monkeypatch):
     assert {"mahalanobis", "euclidean", "pca_kmeans"} <= set(METHODS)
-    with pytest.raises(NotImplementedError):  # load_manifest is not wired yet; the evaluation lists the method as skipped
+    monkeypatch.setattr(config, "DATA", tmp_path)  # an empty data folder
+    with pytest.raises(FileNotFoundError):
         build("mahalanobis", get("libero10_groot"), None)
 
 

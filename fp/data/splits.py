@@ -9,12 +9,16 @@ One algorithm for every dataset:
 
 import random
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Hashable
 
-from .manifest import Episode
+from ..config import get
+from .manifest import Episode, load_manifest
 
 FRACTIONS = (("train", 0.65), ("val", 0.15), ("test", 0.20))
 N_UNSEEN_TASKS = 3  # LIBERO-10: tasks held out per seed
+PAPER_SEEDS = (0, 1, 2)  # LIBERO-10: three random held-out task triples
+LIBEROX_SEEDS = (0, 1, 2)  # LIBERO-X task and signature splits; the skill folds use seed 0
 
 
 @dataclass(frozen=True)
@@ -90,6 +94,37 @@ def pick_unseen_tasks(tasks: list[str], seed: int, n: int = N_UNSEEN_TASKS) -> s
     return set(names[:n])
 
 
+def read_unseen_tasks(path: Path) -> set[str]:
+    """Task names of a LIBERO-X split file (one ``<task>.bddl`` per line)."""
+    return {line.strip()[: -len(".bddl")] for line in open(path) if line.strip()}
+
+
+def split_plan(dataset: str, tasks: list[str]) -> list[tuple[str, int, set[str]]]:
+    """(name, seed, held-out tasks) of every run of the dataset. The names are what ``select_config.split_group`` reads."""
+    spec = get(dataset)
+    plan = []
+    if "paper" in spec.split_kinds:
+        plan += [(f"paper_seed{s}", s, pick_unseen_tasks(tasks, s)) for s in PAPER_SEEDS]
+    files = spec.data_dir / "splits"
+    if "task" in spec.split_kinds:
+        plan += [(f"task_seed{s}", s, read_unseen_tasks(files / "leave_task_out" / "test.txt")) for s in LIBEROX_SEEDS]
+    if "signature" in spec.split_kinds:
+        plan += [(f"signature_seed{s}", s, read_unseen_tasks(files / "leave_signature_out" / "test.txt")) for s in LIBEROX_SEEDS]
+    if "skill" in spec.split_kinds:
+        skills = sorted(p.name for p in (files / "leave_skill_out").iterdir() if p.is_dir())
+        plan += [(f"skill_{k}", 0, read_unseen_tasks(files / "leave_skill_out" / k / "test.txt")) for k in skills]
+    return plan
+
+
 def make_splits(dataset: str) -> list[Split]:
-    """All splits registered for the dataset's ``split_kinds``. Needs the manifests copied into data/ first."""
-    raise NotImplementedError("wired up once the manifests are copied into data/")
+    """Every run of the dataset (LIBERO-10: 3 paper seeds; LIBERO-X: 3 task seeds, 3 signature seeds and one fold
+    per skill), from data/<dataset>/manifest.csv and, for LIBERO-X, data/<dataset>/splits/."""
+    episodes = load_manifest(dataset)
+    tasks = {e.task for e in episodes}
+    splits = []
+    for name, seed, unseen in split_plan(dataset, sorted(tasks)):
+        missing = unseen - tasks
+        if missing:
+            raise ValueError(f"split {name}: held-out tasks not in the manifest, e.g. {sorted(missing)[:2]}")
+        splits.append(build_split(episodes, name, seed, lambda e: e.task, unseen))
+    return splits

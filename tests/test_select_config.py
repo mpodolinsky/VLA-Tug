@@ -130,7 +130,7 @@ def named_splits(eps, names):
 
 def test_split_names_map_to_their_held_out_set():
     eps = make_episodes()
-    names = ["task_seed0", "task_seed2", "signature_seed1", "skill_stack_objects", "skill_toggle_appliance_on", "paper_seed0", "rotating_fold3"]
+    names = ["task_seed0", "task_seed2", "signature_seed1", "skill_stack_objects", "skill_toggle_appliance_on", "paper_seed0", "paper_seed2"]
     got = [split_group(s) for s in named_splits(eps, names)]
     assert got == ["task", "task", "signature", "skill", "skill", "all", "all"]
 
