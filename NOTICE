@@ -1,0 +1,11 @@
+Third-party code
+================
+
+SAFE (Gu et al., NeurIPS 2025, arXiv 2506.09937; https://github.com/vla-safe/SAFE)
+
+    fp/baselines/distance.py     compute_mahala_dist, compute_euclid_dist and compute_dist_closest_k_by_chunk are copied from
+                                 failure_prob/model/embed.py; the fitting and scoring logic follows EmbedModel in the same file.
+    fp/calibration/safe_band.py  port of the one-sided functional conformal band in
+                                 failure_prob/utils/conformal/functional_predictor.py.
+
+The SAFE repository does not state a licence.
