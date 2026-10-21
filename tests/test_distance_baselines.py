@@ -15,9 +15,11 @@ from sklearn.metrics import roc_auc_score
 from fp import config
 from fp.baselines import distance as dist_mod
 from fp.baselines.distance import (DistanceScorer, compute_dist_closest_k_by_chunk, compute_euclid_dist, compute_mahala_dist)
-from fp.baselines.registry import METHODS, build
-from fp.config import get
+from fp.baselines.distance_grid import method_names
+from fp.baselines.registry import FAMILIES, Context, build
+from fp.data.inputs import Inputs
 from fp.data.manifest import Episode
+from fp.data.splits import Split
 
 D = 8
 CONFORMAL = "baselines/SAFE/failure_prob/utils/conformal"  # only used to locate the SAFE checkout
@@ -178,11 +180,47 @@ def test_errors():
         DistanceScorer("euclid", episodes, features, topk=10**6).fit(train, [])
 
 
-def test_registered_names_exist_and_need_the_data_folder(tmp_path, monkeypatch):
-    assert {"mahalanobis", "euclidean", "pca_kmeans"} <= set(METHODS)
-    monkeypatch.setattr(config, "DATA", tmp_path)  # an empty data folder
-    with pytest.raises(FileNotFoundError):
-        build("mahalanobis", get("libero10_groot"), None)
+def test_the_three_families_build_their_grid_scorers_from_a_preloaded_context():
+    import fp.baselines.distance_grid  # noqa: F401  (registers the families)
+
+    assert {"mahalanobis", "euclidean", "pca_kmeans"} <= set(FAMILIES)
+    episodes, features = make_episodes()
+    split = Split("task_seed1", sorted(episodes)[:30], sorted(episodes)[30:40], [], [], sorted(episodes)[40:], seed=7)
+    context = Context(Inputs("synthetic", episodes, None, {split.name: split}, 6), features, device="cpu")
+    built = {family: build(family, context, split) for family in ("mahalanobis", "euclidean", "pca_kmeans")}
+    assert {f: len(s) for f, s in built.items()} == {"mahalanobis": 2, "euclidean": 6, "pca_kmeans": 18}  # SAFE's 26 configurations
+    scorers = [s for ss in built.values() for s in ss]
+    assert len({s.name for s in scorers}) == 26 and all(s.seed == 7 and s.device == "cpu" for s in scorers)  # the split's seed
+    assert all(s.features is features and s.episodes is episodes for s in scorers)  # shared, never copied or reloaded
+    assert [s.name for s in built["euclidean"]] == method_names("euclidean") and method_names("euclidean")[0] == "euclidean__k1_step"  # grid order
+    with pytest.raises(KeyError):
+        build("no_such_baseline", context, split)
+
+
+def test_a_scorer_records_every_setting_in_its_config():
+    episodes, features = make_episodes()
+    scorer = DistanceScorer("euclid", episodes, features, topk=5, cumsum=False, seed=3)
+    assert scorer.config == {"distance": "euclid", "topk": 5, "pca_dim": 64, "n_clusters": 16, "use_success_only": False, "cumsum": False, "seed": 3}
+
+
+def test_the_mahalanobis_pseudo_inverse_is_computed_once_and_gives_the_same_distances():
+    rng = torch.Generator().manual_seed(0)
+    x, mean = torch.randn(40, D, generator=rng), torch.randn(D, generator=rng)
+    a = torch.randn(200, D, generator=rng)
+    cov = torch.cov(a.T) + 1e-4 * torch.eye(D)
+    assert torch.equal(compute_mahala_dist(x, mean, cov), compute_mahala_dist(x, mean, cov, inv_cov=torch.pinverse(cov)))
+    episodes, features = make_episodes()
+    scorer = DistanceScorer("mahala", episodes, features)
+    train, test = split_keys(episodes)
+    scorer.fit(train, [])
+    calls = []
+    original = torch.pinverse
+    torch.pinverse = lambda m: calls.append(1) or original(m)  # count the inversions while scoring
+    try:
+        scorer.score(test)
+    finally:
+        torch.pinverse = original
+    assert calls == []  # scoring never inverts the covariance again
 
 
 # ---------------------------------------------------------------- regression against SAFE's own EmbedModel

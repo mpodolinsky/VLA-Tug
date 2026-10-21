@@ -12,6 +12,7 @@ import numpy as np
 
 class Scorer(ABC):
     name: str
+    saves_weights = False  # True for a scorer with learned weights: the baseline driver then writes ``save()`` into the run
 
     @abstractmethod
     def fit(self, train_keys: list[str], val_keys: list[str]) -> None:
@@ -20,6 +21,16 @@ class Scorer(ABC):
     @abstractmethod
     def score(self, keys: list[str]) -> dict[str, np.ndarray]:
         """Per-step scores for every key, over the full rollout (no cut)."""
+
+    def score_with_extras(self, keys: list[str]) -> tuple[dict[str, np.ndarray], dict[str, dict[str, np.ndarray]]]:
+        """The scores and, optionally, arrays files to store with the run (file name -> per-episode arrays), such as the distances a score
+        is made of. The default has no extras."""
+        return self.score(keys), {}
+
+    def state_bytes(self) -> int | None:
+        """Bytes of everything a fitted scorer must keep to score a new episode (learned weights, stored training steps, statistics), or
+        None if it does not say. Recorded in the history of its run, to compare what different methods need at inference."""
+        return None
 
     def save(self, path: str) -> None:
         """Write learned weights/statistics. Required for every method that has any."""

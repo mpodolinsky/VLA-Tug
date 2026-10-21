@@ -3,8 +3,11 @@ import csv
 import numpy as np
 import pytest
 
-from fp.eval.collect import COLUMNS, arch_name, collect_rows, mean_area, per_split_areas, select_from_saved, write_csv
-from fp.eval.report import report
+from fp.baselines.distance_grid import method_names
+from fp.eval.collect import (COLUMNS, arch_name, collect_rows, family_of, mean_area, per_split_areas, probe_rows, select_baseline_from_saved,
+                             select_from_saved, write_csv)
+from fp.eval.report import methods_compared, report
+from fp.eval.select_config import group_of
 from fp.eval.run_eval import EVAL_SETS, scan_ltt
 from fp.models.ours import all_configs
 from fp.results import run_dir, write_json, write_run
@@ -102,12 +105,71 @@ def test_the_long_table_is_written_with_one_line_per_row(tmp_path):
 def test_the_report_covers_both_calibrators_and_compares_them_on_the_same_runs(tmp_path):
     make_tree(tmp_path)
     text = report(collect_rows(tmp_path))
-    assert "CALIBRATOR max_conformal" in text and "CALIBRATOR safe_band" in text and "CALIBRATORS COMPARED" in text
+    assert "OUR PROBES, CALIBRATOR max_conformal" in text and "OUR PROBES, CALIBRATOR safe_band" in text and "OUR PROBES UNDER BOTH CALIBRATORS" in text
+    assert "BASELINES AND OUR PROBES" not in text  # no baseline runs in this tree
     assert "onset_pm_cut" not in text and "nan" not in text  # only the label variants the sweep trained, and no missing cells
-    block = text.split("CALIBRATORS COMPARED")[1].split("liberox_groot / signature")[1].splitlines()
+    block = text.split("OUR PROBES UNDER BOTH CALIBRATORS")[1].split("liberox_groot / signature")[1].splitlines()
     line = next(l for l in block if l.split()[:2] == ["onset_pre", "unseen"])
     assert float(line.split()[-1]) == pytest.approx(3.0)  # safe_band is 3 points lower than max-conformal everywhere in this tree
     assert text.count("best architecture per label variant") == 4  # 2 groups x 2 calibrators
+
+
+# ---------------------------------------------------------------- baselines next to the probes
+def baseline_rows(areas, splits=("task_seed0", "task_seed1"), unseen=50.0):
+    """Rows of one baseline family: {method: [val area per split]}; the protocol's calibrator for the distance baselines is the SAFE band."""
+    return [{"dataset": DATASET, "split": s, "group": group_of(s), "method": m, "family": family_of(m), "calibrator": "safe_band", "eval_set": e,
+             "area": (v if e == "val" else unseen), "extended": False, "n_fail": 10, "n_succ": 12}
+            for m, vals in areas.items() for s, v in zip(splits, vals) for e in EVAL_SETS]
+
+
+def test_family_names_separate_the_baselines_from_our_probes():
+    assert family_of("lstm_mha_modes_clip__onset_pre") == "ours" and family_of("euclidean__k10_cumsum") == "euclidean" and family_of("safe_lstm") == "safe_lstm"
+
+
+def test_a_baselines_best_configuration_is_chosen_on_validation_in_grid_order(tmp_path):
+    first, second, third = "euclidean__k1_step", "euclidean__k1_cumsum", "euclidean__k5_step"
+    order = [first, second, third]
+    rows = baseline_rows({first: [40.0, 40.0], second: [40.0, 40.0], third: [10.0, 60.0]})  # first and second tie; third averages 35
+    sel = select_baseline_from_saved(rows, DATASET, "task", "euclidean", order)
+    assert sel.best == first and list(sel.mean_val_area) == order  # a tie goes to the earlier configuration of the grid
+    assert select_baseline_from_saved(rows, DATASET, "task", "euclidean", [second, first, third]).best == second  # so the order is part of the rule
+    bait = [{**r, "area": 99.0 if (r["method"] == third and r["eval_set"] != "val") else r["area"]} for r in rows]
+    assert select_baseline_from_saved(bait, DATASET, "task", "euclidean", order).best == first  # unseen and seen areas never decide
+
+
+def test_a_baseline_with_a_missing_validation_area_or_no_runs_is_an_error():
+    first, second = "euclidean__k1_step", "euclidean__k1_cumsum"
+    rows = baseline_rows({first: [40.0, 40.0], second: [40.0, 40.0]})
+    with pytest.raises(ValueError, match="no validation area"):
+        select_baseline_from_saved([r for r in rows if not (r["method"] == second and r["split"] == "task_seed1")], DATASET, "task", "euclidean", [first, second])
+    with pytest.raises(ValueError, match="no evaluated runs"):
+        select_baseline_from_saved(rows, DATASET, "skill", "euclidean", [first])
+
+
+def test_baseline_rows_never_enter_the_probe_tables_or_the_probe_selection(tmp_path):
+    make_tree(tmp_path)
+    ours = collect_rows(tmp_path)
+    mixed = ours + baseline_rows({m: [30.0, 30.0] for m in method_names("euclidean")})
+    assert probe_rows(mixed) == ours
+    assert select_from_saved(mixed, DATASET, "task", VARIANT).best == select_from_saved(ours, DATASET, "task", VARIANT).best  # no KeyError either
+    sections_ours = report(ours).split("\n", 1)[1].rsplit("\nNotes\n", 1)[0].rstrip()  # after the one-line header, up to the notes
+    sections_mixed = report(mixed).split("\n", 1)[1].split("\n" + "=" * 100 + "\nBASELINES AND OUR PROBES")[0].rstrip()
+    assert sections_mixed == sections_ours  # the probe tables are identical with and without baseline rows
+    assert "euclidean" not in sections_mixed
+
+
+def test_every_baseline_is_listed_next_to_our_probes_with_the_calibrator_the_protocol_gives_it(tmp_path):
+    make_tree(tmp_path)
+    areas = {m: [20.0 + i, 20.0 + i] for i, m in enumerate(method_names("euclidean"))}  # the last configuration is best on validation
+    rows = collect_rows(tmp_path) + baseline_rows(areas)
+    text = "\n".join(methods_compared(rows))
+    task = text.split("liberox_groot / task")[1].split("liberox_groot / signature")[0] if "liberox_groot / task" in text else text
+    chosen = method_names("euclidean")[-1]
+    line = next(l for l in task.splitlines() if l.strip().startswith(chosen))
+    assert "safe_band" in line and float(line.split()[2]) == 25.0  # val area of the chosen configuration, calibrated with the band
+    ours_line = next(l for l in task.splitlines() if "__onset_pre" in l)
+    assert "max_conformal" in ours_line  # our probe in the same table, calibrated with max-conformal
+    assert "BASELINES AND OUR PROBES" in report(rows) and "BASELINES AND OUR PROBES" not in report(collect_rows(tmp_path))
 
 
 def test_the_report_counts_the_curves_that_are_held_flat_per_group_on_the_unseen_set_only():

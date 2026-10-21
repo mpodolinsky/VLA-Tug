@@ -1,29 +1,44 @@
-"""Name -> Scorer factory for every method (baselines and ours).
+"""Name -> scorers for every baseline family.
 
-Which calibrator a method gets is decided in one place, ``calibration/protocol.py``; the registry only builds scorers.
+A family is run on one split of one dataset: ``build(name, context, split)`` returns its scorers (the distance baselines return one per
+configuration of SAFE's sweep, in grid order; a single-model family returns one). Which calibrator a method gets is decided in one place,
+``calibration/protocol.py``; the registry only builds scorers.
 
-A baseline that cannot be built for a dataset raises ``NotImplementedError`` with the reason;
-``run_all`` catches exactly that and records the method as skipped in the summary, so nothing
-is dropped silently.
+A baseline that cannot be built for a dataset raises ``NotImplementedError`` with the reason, and the driver records the family as
+skipped, so nothing is dropped silently. A family registers itself when its module is imported (``baselines/sweep.py`` imports them all).
 """
 
-from typing import Callable
+from dataclasses import dataclass
+from typing import Callable, Mapping
 
-from ..config import DatasetSpec
+import numpy as np
+
+from ..data.inputs import Inputs
+from ..data.splits import Split
 from ..models.base import Scorer
 
-METHODS: dict[str, Callable[..., Scorer]] = {}  # name -> factory(spec, split) -> Scorer
+
+@dataclass(frozen=True)
+class Context:
+    """What baselines are built from: loaded once per dataset and shared by all its splits and families."""
+
+    inputs: Inputs
+    features: Mapping[str, np.ndarray]  # RAW pooled features (T, 6144) float32 of every episode, as the SAFE baselines use them
+    device: str = "cpu"
+
+
+FAMILIES: dict[str, Callable[[Context, Split], list[Scorer]]] = {}
 
 
 def register(name: str):
     def wrap(factory):
-        METHODS[name] = factory
+        FAMILIES[name] = factory
         return factory
 
     return wrap
 
 
-def build(name: str, spec: DatasetSpec, split) -> Scorer:
-    if name not in METHODS:
-        raise KeyError(f"unknown method {name!r}; registered: {sorted(METHODS)}")
-    return METHODS[name](spec, split)
+def build(name: str, context: Context, split: Split) -> list[Scorer]:
+    if name not in FAMILIES:
+        raise KeyError(f"unknown baseline family {name!r}; registered: {sorted(FAMILIES)}")
+    return FAMILIES[name](context, split)

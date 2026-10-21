@@ -9,11 +9,14 @@ from typing import Mapping
 
 import numpy as np
 
-from ..calibration.protocol import MAX_CONFORMAL, SAFE_BAND
+from ..baselines.distance import DistanceScorer
+from ..baselines.distance_grid import method_names
+from ..calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_name
 from ..data.manifest import Episode
 from ..data.splits import Split
 from ..grid import VARIANTS, split_priority
-from .collect import FACTORS, mean_area, per_split_areas, select_from_saved
+from .collect import FACTORS, OURS, mean_area, per_split_areas, probe_rows, select_baseline_from_saved, select_from_saved
+from .compute import compute_table
 from .select_config import group_of
 
 LEVELS = {"trunk": ("lstm", "mlp"), "mha": (False, True), "heads": ("plain", "modes", "clip", "modes_clip"),
@@ -133,16 +136,56 @@ def calibrator_comparison(rows: list[dict], calibrators: tuple[str, ...] = (MAX_
     return lines
 
 
-def report(rows: list[dict], calibrators: tuple[str, ...] = (MAX_CONFORMAL, SAFE_BAND), sizes: list[dict] | None = None) -> str:
-    """The split sizes (when given), the factor tables and the validation-chosen architectures under each calibrator, then the calibrators
-    side by side."""
+def method_order(rows: list[dict], family: str) -> list[str]:
+    """The methods of a baseline family in the order ties are broken in: SAFE's grid order for the distance families, else sorted names."""
+    if family in DistanceScorer.NAMES.values():
+        return method_names(family)
+    return sorted({r["method"] for r in rows if r["family"] == family})
+
+
+def methods_compared(rows: list[dict]) -> list[str]:
+    """Per dataset and group: each baseline family's configuration and each label variant's architecture of our probes, chosen on the mean
+    validation area, with val / seen / unseen areas (mean over the group's splits) and the spread of the unseen area over the splits. Every
+    method is calibrated as the protocol says (``calibrator`` column), so this table mixes calibrators."""
+    lines = []
+    for dataset, group in groups(rows):
+        lines += ["", f"{dataset} / {group}: best configuration chosen on validation, calibrated as the protocol says",
+                  f"  {'method':32s}{'calibrator':>15s}{'val':>8s}{'seen':>8s}{'unseen':>8s}{'  unseen std':>14s}"]
+        chosen = []
+        for family in sorted({r["family"] for r in rows if (r["dataset"], r["group"]) == (dataset, group) and r["family"] != OURS}):
+            try:
+                chosen.append(select_baseline_from_saved(rows, dataset, group, family, method_order(rows, family)).best)
+            except ValueError as error:
+                lines.append(f"  {family:32s}no selection: {error}")
+        for variant in LEVELS["variant"]:
+            try:
+                chosen.append(f"{select_from_saved(rows, dataset, group, variant).best}__{variant}")
+            except ValueError:
+                pass  # this label variant was not trained
+        for method in chosen:
+            calibrator = calibrator_name(method)
+            by_set = {s: list(per_split_areas(rows, dataset, group, method, calibrator, s).values()) for s in SETS}
+            lines.append(f"  {method:32s}{calibrator:>15s}" + "".join(f"{np.mean(by_set[s]):8.1f}" for s in SETS) + f"{np.std(by_set['unseen']):14.1f}")
+    return lines
+
+
+def report(rows: list[dict], calibrators: tuple[str, ...] = (MAX_CONFORMAL, SAFE_BAND), sizes: list[dict] | None = None,
+           costs: list[dict] | None = None) -> str:
+    """The split sizes (when given); the factor tables and validation-chosen architectures of our probes under each calibrator; the
+    calibrators side by side; then every baseline against our probes."""
+    ours = probe_rows(rows)
     n_runs = len({(r["dataset"], r["split"], r["method"]) for r in rows})
-    lines = [f"{n_runs} evaluated runs; areas in [0, 100]; calibrators: {', '.join(calibrators)}"]
+    lines = [f"{n_runs} evaluated runs ({len({r['method'] for r in ours})} probes, {len({r['method'] for r in rows} - {r['method'] for r in ours})} baseline "
+             f"methods); areas in [0, 100]; calibrators: {', '.join(calibrators)}"]
     if sizes:
         lines += ["", "=" * 100, "SPLIT SIZES"] + split_size_table(sizes)
     for calibrator in calibrators:
-        lines += ["", "=" * 100, f"CALIBRATOR {calibrator}" + ("  (the protocol's for our probes)" if calibrator == MAX_CONFORMAL else "  (secondary table)")]
-        lines += factor_tables(rows, calibrator) + selection_table(rows, calibrator) + extended_table(rows, calibrator)
+        lines += ["", "=" * 100, f"OUR PROBES, CALIBRATOR {calibrator}" + ("  (the protocol's for our probes)" if calibrator == MAX_CONFORMAL else "  (secondary table)")]
+        lines += factor_tables(ours, calibrator) + selection_table(ours, calibrator) + extended_table(ours, calibrator)
     if len(calibrators) > 1:
-        lines += ["", "=" * 100, "CALIBRATORS COMPARED"] + calibrator_comparison(rows, calibrators)
+        lines += ["", "=" * 100, "OUR PROBES UNDER BOTH CALIBRATORS"] + calibrator_comparison(ours, calibrators)
+    if len(ours) < len(rows):
+        lines += ["", "=" * 100, "BASELINES AND OUR PROBES"] + methods_compared(rows)
+    if costs:
+        lines += ["", "=" * 100, "WHAT THE RUNS COST"] + compute_table(costs)
     return "\n".join(lines + [""] + list(NOTES))

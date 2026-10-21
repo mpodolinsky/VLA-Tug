@@ -91,6 +91,12 @@ class OursScorer(Scorer):
     def score(self, keys: list[str], batch: int = 32) -> dict[str, np.ndarray]:
         return self.outputs(keys, batch, heads=False)["score"]
 
+    def state_bytes(self) -> int | None:
+        """The probe's weights; scoring also needs the feature statistics (two vectors of the feature width), which are counted."""
+        if self.model is None:
+            return None
+        return sum(p.numel() * p.element_size() for p in self.model.parameters()) + self.features.mean.nbytes + self.features.std.nbytes
+
     def save(self, path: str) -> None:
         torch.save({"cfg": asdict(self.cfg), "variant": self.label_variant, "state": self.model.state_dict(), "mean": self.features.mean,
                     "std": self.features.std, "best_epoch": self.result.best_epoch if self.result else None}, path)
