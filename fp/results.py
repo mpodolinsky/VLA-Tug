@@ -7,12 +7,13 @@
         semantic.npz          probes with a CLIP head: (T, 64) raw semantic vectors per step of every episode
         semantic_space.npz    the CLIP head's target space (``target`` (P, 64) per phrase, ``bank_index`` (P,)), to interpret semantic.npz
         history.json         what the run was: configs, per-term learning curves, best epoch, seconds, split hash, code version
-        curve_<calibrator>.json   rows: alpha, fpr, tpr, tpr_early, on_time, ldr
-        summary.json          area_to_fpr40, extended flag, LTT point, config, seed
-    results/<dataset>/skipped.json    methods that could not run, with the reason
+        curve_<calibrator>.json   the alpha sweep on the validation, seen and unseen episodes: alpha, fpr, tpr, tpr_early, tpr_on_time, ldr
+        summary.json          per calibrator and episode set: area to FPR 40, extended flag, numbers of failures and successes; code version
+        ltt.json              the Learn-then-Test operating point and its rates, when LTT was evaluated
 
 A run directory is written under a temporary name and renamed when complete, so a directory that exists is a finished run and a killed
-job leaves nothing that looks finished. An existing run is never overwritten.
+job leaves nothing that looks finished. An existing run is never overwritten. The evaluation files are derived from the scores and may
+be overwritten; each file is replaced atomically, and ``summary.json`` records the code version that produced it.
 """
 
 import hashlib
@@ -83,10 +84,21 @@ def code_version() -> dict:
     return {"git_head": head.stdout.strip() or None, "fp_sha256": digest.hexdigest()}
 
 
-def write_curve(path: Path, rows: list[dict]) -> None:
-    raise NotImplementedError
+def write_json(path: Path, obj: dict) -> None:
+    """Write ``obj`` to ``path`` atomically, replacing an existing file (for derived files such as the evaluation outputs)."""
+    path = Path(path)
+    partial = path.with_name(path.name + ".partial")
+    partial.write_text(json.dumps(obj))
+    os.replace(partial, path)
 
 
-def read_curves(dataset: str, method: str, calibrator: str) -> dict[str, list[dict]]:
-    """{split name: rows} for plotting."""
-    raise NotImplementedError
+def read_json(path: Path) -> dict:
+    return json.loads(Path(path).read_text())
+
+
+def iter_runs(root: Path = RESULTS, datasets: tuple[str, ...] | None = None):
+    """Every finished run under ``root`` as (dataset, split, method, path), in sorted order."""
+    for history in sorted(Path(root).glob("*/*/*/history.json")):
+        path = history.parent
+        if datasets is None or path.parents[1].name in datasets:
+            yield path.parents[1].name, path.parent.name, path.name, path

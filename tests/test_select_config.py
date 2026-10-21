@@ -6,7 +6,7 @@ import pytest
 from fp.data.manifest import Episode
 from fp.data.splits import build_split
 from fp.eval import select_config
-from fp.eval.select_config import select_best, select_best_per_group, split_group, validation_area
+from fp.eval.select_config import choose_best, select_best, select_best_per_group, split_group, validation_area, validation_area_from_scores
 from fp.models.base import Scorer
 
 T, ONSET, WINDOW = 20, 10, 3
@@ -154,6 +154,39 @@ def test_libero10_runs_are_pooled_into_one_choice(monkeypatch):
     make = lambda: [FakeScorer("euclidean__k1_cumsum", 0, eps, {"fit": [], "score": []})]
     result = select_best_per_group(make, named_splits(eps, ["paper_seed0", "paper_seed1", "paper_seed2"]), eps, WINDOW)
     assert list(result) == ["all"] and len(result["all"].per_run["euclidean__k1_cumsum"]) == 3
+
+
+def test_choose_best_takes_the_highest_mean_and_gives_ties_to_the_earlier_configuration():
+    sel = choose_best({"a": [60.0, 10.0], "b": [40.0, 40.0], "c": [40.0, 40.0]})
+    assert sel.best == "b" and sel.mean_val_area == {"a": 35.0, "b": 40.0, "c": 40.0} and sel.per_run["a"] == [60.0, 10.0]
+
+
+def test_choose_best_refuses_nan_areas_and_unequal_runs():
+    with pytest.raises(ValueError, match="NaN"):
+        choose_best({"a": [60.0, float("nan")], "b": [40.0, 40.0]})
+    with pytest.raises(ValueError, match="same runs"):
+        choose_best({"a": [60.0], "b": [40.0, 40.0]})
+
+
+def test_saved_scores_and_fitted_scorers_are_selected_by_the_same_rule():
+    """The scores a scorer produces, saved and then selected from, give the same areas and the same winner as fitting it in the loop."""
+    eps = make_episodes()
+    splits = make_splits(eps)
+    fitted = select_best(scorers(eps, {"fit": [], "score": []}), splits, eps, WINDOW)
+    per_run = {}
+    for split in splits:
+        for scorer in scorers(eps, {"fit": [], "score": []})():
+            saved = scorer.score(split.calibration + split.val)  # what a run on disk holds (it holds all episodes; only these are read)
+            per_run.setdefault(scorer.name, []).append(validation_area_from_scores(saved, scorer.name, split, eps, WINDOW))
+    assert choose_best(per_run) == fitted
+
+
+def test_the_validation_area_reads_only_calibration_and_validation_scores():
+    eps = make_episodes()
+    split = make_splits(eps)[0]
+    scores = FakeScorer("euclidean__k1_cumsum", 0.25, eps, {"fit": [], "score": []}).score(split.calibration + split.val)
+    area = validation_area_from_scores(scores, "euclidean__k1_cumsum", split, eps, WINDOW)  # no seen or unseen key in `scores`: it would KeyError
+    assert 0.0 < area <= 100.0 + 1e-9
 
 
 def test_the_protocol_calibrator_of_the_scorer_is_used():

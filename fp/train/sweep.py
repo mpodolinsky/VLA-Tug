@@ -17,11 +17,9 @@ from typing import Callable
 import numpy as np
 import torch
 
-from .. import config
 from ..data.features import load_features
-from ..data.manifest import Episode, load_manifest
-from ..data.splits import Split, make_splits
-from ..data.targets import Targets, load_targets
+from ..data.inputs import Inputs
+from ..data.splits import Split
 from ..grid import Unit
 from ..models.ours import ProbeConfig, all_configs
 from ..results import code_version, is_done, run_dir, split_hash, write_run
@@ -38,22 +36,6 @@ class Settings:
     save_weights: bool = True
     save_heads: bool = True  # outputs of the mode and CLIP heads, for the architectures that have them
     min_free_gb: float = 20.0  # below this much free disk, scores and history are still written but weights and head outputs are not
-
-
-@dataclass(frozen=True)
-class Inputs:
-    """What a dataset's units need besides the features."""
-
-    dataset: str
-    episodes: dict[str, Episode]
-    targets: Targets
-    splits: dict[str, Split]
-    window: int
-
-
-def load_inputs(dataset: str) -> Inputs:
-    episodes = {e.key: e for e in load_manifest(dataset)}
-    return Inputs(dataset, episodes, load_targets(dataset), {s.name: s for s in make_splits(dataset)}, config.get(dataset).window_steps)
 
 
 def free_gb(path: Path) -> float:

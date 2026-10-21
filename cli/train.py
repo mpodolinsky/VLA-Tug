@@ -15,11 +15,12 @@ import torch
 
 from fp.config import RESULTS
 from fp.data.features import feature_lengths
+from fp.data.inputs import load_inputs
 from fp.grid import DATASETS, VARIANTS, all_split_names, units
 from fp.models.ours import all_configs
 from fp.results import is_done, run_dir
 from fp.train.preflight import check_episodes, check_split
-from fp.train.sweep import Settings, load_inputs, train_unit
+from fp.train.sweep import Settings, train_unit
 
 
 def log(message: str) -> None:
