@@ -22,9 +22,15 @@ def load_features(dataset: str, keys: list[str]) -> dict[str, np.ndarray]:
 
 
 def fit_standardiser(train: list[np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
-    """Mean and std over all steps of the training episodes (std floored to avoid division by zero)."""
-    raise NotImplementedError
+    """Per-column mean and std over all steps of the training episodes (float64 sums; 1e-6 is added to the std)."""
+    total = square = 0.0
+    steps = 0
+    for x in train:
+        x = x.astype(np.float64)
+        total, square, steps = total + x.sum(axis=0), square + (x**2).sum(axis=0), steps + len(x)
+    mean = total / steps
+    return mean, np.sqrt(np.maximum(square / steps - mean**2, 0.0)) + 1e-6
 
 
 def standardise(x: np.ndarray, mean: np.ndarray, std: np.ndarray) -> np.ndarray:
-    raise NotImplementedError
+    return ((x - mean) / std).astype(np.float32)

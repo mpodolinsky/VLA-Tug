@@ -14,6 +14,16 @@ class PreviousMaxConformal(MaxConformal):
         return np.full(length, np.quantile(self.maxima, level))
 
 
+def headnet_to_probe_state(state: dict) -> dict:
+    """Parameter names of the earlier experiments' HeadNet -> the names in fp.models.ours.Probe."""
+    renames = {"proj": "attention.proj", "mha": "attention.attn", "mha_norm": "attention.norm", "lstm": "trunk"}
+    out = {}
+    for key, value in state.items():
+        head, _, rest = key.partition(".")
+        out[f"{renames[head]}.{rest}" if head in renames else key] = value  # trunk (step MLP), score, mode, sem keep their names
+    return out
+
+
 class Float32Threshold(PreviousMaxConformal):
     """The previous code compared float32 scores with a Python float, which numpy 1.x rounds to float32."""
 
