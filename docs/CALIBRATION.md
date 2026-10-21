@@ -15,7 +15,7 @@ Notation. A detector turns an episode into a score trajectory $s(1),\dots,s(T)$ 
 | ActProbe | max-conformal | as in the ActProbe paper |
 | Mahalanobis, Euclidean (k-NN), PCA-KMeans | SAFE band | as SAFE itself evaluates them; every one of their 26 grid configurations gets the same calibrator. Their score can be negative, so the maximum over steps is not the final value (unlike STAC) |
 
-The table is one dictionary in `protocol.py`; the registry only builds scorers. Probe names follow `<lstm|mlp>_<plain|modes|clip|modes_clip>__<label variant>`; an unknown name is an error, never a default.
+The table is one dictionary in `protocol.py`; the registry only builds scorers. Probe names follow `<lstm|mlp>[_mha]_<plain|modes|clip|modes_clip>__<label variant>` (for example `lstm_mha_modes_clip__onset_pre`); an unknown name is an error, never a default.
 
 ## 1. SAFE functional conformal band (`safe_band.py`)
 

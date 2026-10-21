@@ -8,6 +8,7 @@ from fp.baselines.distance_grid import all_grid_scorers
 from fp.calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_name, make_calibrator
 from fp.calibration.safe_band import SafeBand
 from fp.data.labels import VARIANTS
+from fp.models.ours import all_configs
 
 
 @pytest.mark.parametrize("method", ["safe_mlp", "safe_lstm", "failurespot"])
@@ -21,8 +22,9 @@ def test_stac_and_actprobe_use_max_conformal(method):
 
 
 def test_every_probe_name_gets_max_conformal():
-    for trunk, heads, variant in itertools.product(("lstm", "mlp"), ("plain", "modes", "clip", "modes_clip"), VARIANTS):
-        assert calibrator_name(f"{trunk}_{heads}__{variant}") == MAX_CONFORMAL
+    """The names come from the model code itself, so the protocol cannot drift from the naming of the probes."""
+    for cfg, variant in itertools.product(all_configs(), VARIANTS):
+        assert calibrator_name(f"{cfg.name}__{variant}") == MAX_CONFORMAL
 
 
 @pytest.mark.parametrize("method", ["mahalanobis", "euclidean", "pca_kmeans"])

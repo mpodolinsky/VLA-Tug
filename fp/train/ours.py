@@ -22,7 +22,7 @@ class OursScorer(Scorer):
     def __init__(self, cfg: ProbeConfig, label_variant: str):
         self.cfg = cfg
         self.label_variant = label_variant
-        self.name = f"{cfg.trunk}_{cfg.heads}__{label_variant}"
+        self.name = f"{cfg.name}__{label_variant}"
 
     def fit(self, train_keys: list[str], val_keys: list[str]) -> None:
         raise NotImplementedError
