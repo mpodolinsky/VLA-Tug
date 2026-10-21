@@ -11,6 +11,7 @@ from fp.data.targets import MODE_NAMES, Targets
 from fp.models.ours import ProbeConfig
 from fp.train.loop import TrainConfig
 from fp.train.ours import OursScorer
+from fp.train.standardised import standardise_features
 
 D, WINDOW, N_PHRASES = 8, 3, 20
 TRAIN_CFG = TrainConfig(lr=5e-3, batch=8, max_epochs=40, patience=40, seed=0)
@@ -39,11 +40,12 @@ def data():
     emb = rng.normal(size=(N_PHRASES, 16)).astype(np.float32)
     targets = Targets([f"phrase {j}" for j in range(N_PHRASES)], emb / np.linalg.norm(emb, axis=1, keepdims=True), ids, modes)
     keys = list(episodes)
-    return episodes, features, targets, keys[:24], keys[24:32], keys[32:]  # train, val, test
+    standardised = standardise_features({k: v.copy() for k, v in features.items()}, keys[:24])
+    return episodes, standardised, targets, keys[:24], keys[24:32], keys[32:], features  # ..., train, val, test, the raw features
 
 
 def scorer(data, c=None, variant="onset_pre", **kw):
-    episodes, features, targets, *_ = data
+    episodes, features, targets, *_ = data  # the standardised features
     return OursScorer(c or cfg(), variant, episodes, features, targets, WINDOW, TRAIN_CFG, device="cpu", **kw)
 
 
@@ -52,6 +54,33 @@ def fitted(data):
     s = scorer(data)
     s.fit(data[3], data[4])
     return s
+
+
+def test_outputs_hold_the_score_and_the_heads_the_architecture_has(data, fitted):
+    plain = fitted.outputs(data[5])
+    assert set(plain) == {"score"} and fitted.space is None  # the plain probe has no other head and no semantic target space
+    s = scorer(data, cfg(modes=True, clip=True))
+    s.fit(data[3], data[4])
+    out = s.outputs(data[5])
+    assert set(out) == {"score", "mode", "sem"} and s.space is not None and s.space.target.shape == (N_PHRASES, 6)
+    for key in data[5]:
+        n = data[0][key].n_steps
+        assert out["mode"][key].shape == (n, len(MODE_NAMES)) and out["sem"][key].shape == (n, 6) and out["score"][key].shape == (n,)
+        assert all(out[h][key].dtype == np.float32 and np.isfinite(out[h][key]).all() for h in out)
+    assert all(np.array_equal(out["score"][k], s.score(data[5])[k]) for k in data[5])
+    assert set(s.outputs(data[5], heads=False)) == {"score"}
+
+
+def test_the_head_outputs_are_what_the_model_computes_on_the_whole_rollout(data):
+    s = scorer(data, cfg(modes=True, clip=True))
+    s.fit(data[3], data[4])
+    key = data[5][0]
+    with torch.no_grad():
+        direct = s.model(s.features.arrays[key][None].to(s.device))
+    out = s.outputs([key])
+    assert np.allclose(out["mode"][key], direct["mode"][0].cpu().numpy(), atol=1e-5)
+    assert np.allclose(out["sem"][key], direct["sem"][0].cpu().numpy(), atol=1e-5)
+    assert np.allclose(out["score"][key], torch.sigmoid(direct["score"][0]).cpu().numpy(), atol=1e-6)
 
 
 def test_the_name_is_the_architecture_and_the_label_variant(data):
@@ -80,12 +109,13 @@ def test_steps_before_the_variants_cut_get_the_same_score_on_the_cut_rollout(dat
     """The probe is causal: scoring the rollout cut at step 10 gives the first 10 values of scoring it whole."""
     key = data[5][0]
     full = fitted.score([key])[key]
-    cut = {**fitted.features, key: fitted.features[key][:10]}
-    fitted.features, original = cut, fitted.features
+    arrays = fitted.features.arrays
+    original = arrays[key]
+    arrays[key] = original[:10]
     try:
         assert np.allclose(fitted.score([key])[key], full[:10], atol=1e-6)
     finally:
-        fitted.features = original
+        arrays[key] = original
 
 
 def test_the_same_seed_gives_identical_scores(data, fitted):
@@ -99,12 +129,12 @@ def test_early_stopping_follows_the_validation_score_bce_even_with_the_other_hea
     """The selection value is the weighted BCE of the validation items alone: recomputed here from the fitted model's scores."""
     s = scorer(data, cfg(mha=True, modes=True, clip=True))
     s.fit(data[3], data[4])
-    train = [s._item(k, s.mean, s.std) for k in data[3]]
+    train = [s._item(k) for k in data[3]]
     y = torch.cat([it.y for it in train])
     pos_weight = float((1 - y).sum() / y.sum())
     probs, steps, total = s.score(data[4]), 0, 0.0
     for key in data[4]:
-        item = s._item(key, s.mean, s.std)
+        item = s._item(key)
         p = torch.from_numpy(probs[key][: len(item.y)]).double()
         total += float(-(pos_weight * item.y * torch.log(p) + (1 - item.y) * torch.log(1 - p)).sum())
         steps += len(item.y)
@@ -121,8 +151,13 @@ def test_every_head_term_is_reported_for_every_epoch_and_finite(data):
 
 
 def test_the_feature_statistics_come_from_the_training_episodes_only(data, fitted):
-    mean, std = fit_standardiser([data[1][k] for k in data[3]])
-    assert np.array_equal(fitted.mean, mean) and np.array_equal(fitted.std, std)
+    mean, std = fit_standardiser([data[6][k] for k in data[3]])
+    assert np.array_equal(fitted.features.mean, mean) and np.array_equal(fitted.features.std, std)
+
+
+def test_fitting_on_other_training_episodes_than_the_features_were_standardised_with_is_an_error(data):
+    with pytest.raises(ValueError, match="other training episodes"):
+        scorer(data).fit(data[3][:-1], data[4])
 
 
 def test_save_and_load_reproduce_the_scores(data, fitted, tmp_path):
@@ -139,6 +174,9 @@ def test_loading_weights_into_another_architecture_or_label_variant_is_an_error(
         scorer(data, cfg(trunk="mlp")).load(tmp_path / "w.pt")
     with pytest.raises(ValueError, match="this scorer is"):
         scorer(data, variant="onset").load(tmp_path / "w.pt")
+    shifted = standardise_features({k: v.copy() for k, v in data[6].items()}, data[3][:-2] + data[4][:2])  # other statistics
+    with pytest.raises(ValueError, match="other statistics"):
+        OursScorer(cfg(), "onset_pre", data[0], shifted, data[2], WINDOW, TRAIN_CFG, device="cpu").load(tmp_path / "w.pt")
 
 
 def test_scoring_before_fitting_is_an_error(data):
@@ -147,7 +185,7 @@ def test_scoring_before_fitting_is_an_error(data):
 
 
 def test_a_failed_training_episode_without_a_mode_is_an_error(data):
-    episodes, features, targets, train, val, _ = data
+    episodes, features, targets, train, val, *_ = data
     broken = Targets(targets.phrases, targets.embeddings, targets.phrase_ids, {k: v for k, v in targets.modes.items() if k != train[0]})
     s = OursScorer(cfg(modes=True), "onset", episodes, features, broken, WINDOW, TRAIN_CFG, device="cpu")
     with pytest.raises(KeyError):

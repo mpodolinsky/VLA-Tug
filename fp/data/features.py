@@ -1,8 +1,26 @@
 """Load pooled features and standardise them with training-split statistics."""
 
+import zipfile
+
 import numpy as np
 
 from ..config import FEATURE_DIM, get
+
+
+def feature_lengths(dataset: str) -> dict[str, int]:
+    """{episode key: number of steps} from the array headers of data/<dataset>/features.npz, without loading the arrays."""
+    path = get(dataset).data_dir / "features.npz"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} does not exist")
+    lengths = {}
+    with zipfile.ZipFile(path) as z:
+        for name in z.namelist():
+            with z.open(name) as f:
+                major, _ = np.lib.format.read_magic(f)
+                read_header = np.lib.format.read_array_header_1_0 if major == 1 else np.lib.format.read_array_header_2_0
+                shape, _, _ = read_header(f)
+            lengths[name.removesuffix(".npy")] = shape[0]
+    return lengths
 
 
 def load_features(dataset: str, keys: list[str]) -> dict[str, np.ndarray]:

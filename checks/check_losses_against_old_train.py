@@ -64,7 +64,7 @@ for variant in ("onset", "onset_pre", "onset_post", "onset_traj", "onset_pm_cut"
 
     old_train = [old_item(*e_) for e_ in train]
     old_ctx = old.make_context({"train": old_train}, emb, spec)
-    new_train = [make_item(e, x, ids, mode, variant, WINDOW) for e, x, ids, mode in train]
+    new_train = [make_item(e, torch.from_numpy(x), ids, mode, variant, WINDOW) for e, x, ids, mode in train]
     space = fit_semantic_space(emb, np.concatenate([it.phrase.numpy() for it in new_train]), dim=64)
     new_ctx = make_context(new_train, cfg, space, "cpu")
 
@@ -73,7 +73,7 @@ for variant in ("onset", "onset_pre", "onset_post", "onset_traj", "onset_pm_cut"
     ctx_dev = max(float((old_ctx.mode_weight.cpu() - new_ctx.mode_weight).abs().max()), abs(float(old_ctx.pos_weight) - float(new_ctx.pos_weight)),
                   float((old_ctx.bank.cpu() - new_ctx.bank).abs().max()))
     old_batch = [old_item(*e_) for e_ in batch_eps]
-    new_batch = [make_item(e, x, ids, mode, variant, WINDOW) for e, x, ids, mode in batch_eps]
+    new_batch = [make_item(e, torch.from_numpy(x), ids, mode, variant, WINDOW) for e, x, ids, mode in batch_eps]
     old_net.train()
     new_net.train()
     a = float(old.batch_loss(old_net, old_batch, spec, old_ctx, args))

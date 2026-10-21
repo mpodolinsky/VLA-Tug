@@ -31,22 +31,22 @@ class Batch:
     mode: torch.Tensor  # (B, T) int64, the episode's mode on steps with y == 1 of a failed episode, -1 elsewhere
 
 
-def make_item(episode: Episode, x: np.ndarray, phrase_ids: np.ndarray, mode: int | None, variant: str, window: int) -> Item:
-    """``x`` and ``phrase_ids`` cover all steps of the episode; the item keeps the steps the label variant keeps."""
+def make_item(episode: Episode, x: torch.Tensor, phrase_ids: np.ndarray, mode: int | None, variant: str, window: int) -> Item:
+    """``x`` and ``phrase_ids`` cover all steps of the episode; the item keeps the steps the label variant keeps (``x`` is not copied)."""
     labels = build_labels(variant, episode.n_steps, episode.onset, window)
     keep = labels.n
-    return Item(torch.from_numpy(x[:keep]), torch.from_numpy(labels.y), torch.from_numpy(phrase_ids[:keep].astype(np.int64)),
-                -1 if mode is None else int(mode))
+    return Item(x[:keep], torch.from_numpy(labels.y), torch.from_numpy(phrase_ids[:keep].astype(np.int64)), -1 if mode is None else int(mode))
 
 
 def collate(items: list[Item], device: str | torch.device = "cpu") -> Batch:
+    """Pad to the longest item, building the batch on ``device`` (the items' features may already live there)."""
     n, steps, d = len(items), max(len(it.y) for it in items), items[0].x.shape[1]
-    x, y = torch.zeros(n, steps, d), torch.zeros(n, steps)
-    valid = torch.zeros(n, steps, dtype=torch.bool)
-    phrase, mode = (torch.full((n, steps), -1, dtype=torch.long) for _ in range(2))
+    x, y = torch.zeros(n, steps, d, device=device), torch.zeros(n, steps, device=device)
+    valid = torch.zeros(n, steps, dtype=torch.bool, device=device)
+    phrase, mode = (torch.full((n, steps), -1, dtype=torch.long, device=device) for _ in range(2))
     for i, it in enumerate(items):
         k = len(it.y)
         x[i, :k], y[i, :k], valid[i, :k], phrase[i, :k] = it.x, it.y, True, it.phrase
         if it.mode >= 0:
             mode[i, :k] = torch.where(it.y == 1, it.mode, -1)
-    return Batch(*(t.to(device) for t in (x, y, valid, phrase, mode)))
+    return Batch(x, y, valid, phrase, mode)

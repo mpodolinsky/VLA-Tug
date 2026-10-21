@@ -16,7 +16,7 @@ def success(n=9):
 
 
 def arrays(n):
-    return np.arange(n * D, dtype=np.float32).reshape(n, D), np.arange(n, dtype=np.int32)
+    return torch.arange(n * D, dtype=torch.float32).reshape(n, D), np.arange(n, dtype=np.int32)
 
 
 def test_onset_variant_cuts_at_the_onset_and_labels_the_window():
@@ -42,7 +42,7 @@ def test_a_success_is_uncut_all_zero_and_has_no_mode():
 def test_the_features_are_the_given_ones_not_a_copy_with_other_values():
     x, ids = arrays(N)
     it = make_item(failed(), x, ids, 0, "onset", WINDOW)
-    assert torch.equal(it.x, torch.from_numpy(x[: ONSET + 1]))
+    assert torch.equal(it.x, x[: ONSET + 1]) and it.x.data_ptr() == x.data_ptr()  # a view of the standardised features, not a copy
 
 
 def test_collate_pads_with_zeros_and_marks_the_real_steps():
