@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from fp import config
-from fp.data.features import load_features
+from fp.data.features import fit_standardiser, load_features, standardise
 
 
 def save(tmp_path, monkeypatch, arrays):
