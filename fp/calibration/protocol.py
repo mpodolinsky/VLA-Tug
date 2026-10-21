@@ -38,8 +38,8 @@ PROTOCOL: dict[str, str] = {
     "actprobe": MAX_CONFORMAL,
 }
 
-# Our probes are named <trunk>_<heads>__<label variant>, e.g. lstm_modes_clip__onset_pre (see train/ours.py).
-_OURS = re.compile(rf"^(lstm|mlp)_(plain|modes|clip|modes_clip)__({'|'.join(VARIANTS)})$")
+# Our probes are named <ProbeConfig.name>__<label variant>, e.g. lstm_mha_modes_clip__onset_pre (see models/ours.py, train/ours.py).
+_OURS = re.compile(rf"^(lstm|mlp)(_mha)?_(plain|modes|clip|modes_clip)__({'|'.join(VARIANTS)})$")
 # One configuration of an embedding-distance baseline: <baseline>__<tag>, e.g. euclidean__k10_cumsum (see baselines/distance.py).
 _DISTANCE_CONFIG = re.compile(r"^(mahalanobis|euclidean|pca_kmeans)__[a-z0-9_]+$")
 
