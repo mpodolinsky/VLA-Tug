@@ -12,7 +12,7 @@ Local data, ignored by git. One folder per dataset (`libero10_groot`, `libero10_
                  policy step, and CLIP ViT-B/32 text embeddings of the phrases (format in fp/data/targets.py)
 ```
 
-`python -m cli.download <dataset>` fetches `manifest.csv`, `splits/` (unchanged) and the pooled features, which the Hub datasets hold as `pooled/features.npz`. `features.npz` can also be produced from the raw rollouts of the Hub datasets:
+`python -m cli.download <dataset>` fetches `manifest.csv`, `splits/` (unchanged), the pooled features and the targets, which the Hub datasets hold as `pooled/features.npz` and `pooled/targets.npz`. `features.npz` can also be produced from the raw rollouts of the Hub datasets:
 
 ```
 python -m cli.prepare <dataset> <folder holding the raw rollouts, one <dir>/rollout.npz per episode>
