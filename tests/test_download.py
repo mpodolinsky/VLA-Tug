@@ -24,7 +24,8 @@ class FakeHub:
 
 
 REPO_FILES = {
-    "pooled/features.npz": b"features", "pooled/meta.json": b"{}", "pooled/README.md": b"card", "manifest.csv": b"manifest",
+    "pooled/features.npz": b"features", "pooled/targets.npz": b"targets", "pooled/meta.json": b"{}", "pooled/README.md": b"card",
+    "manifest.csv": b"manifest",
     "rollout.json": b"raw metadata", "normal/t0/ep000/rollout.npz": b"raw rollout",
     "splits/leave_task_out/test.txt": b"a.bddl\n", "splits/leave_skill_out/pick/test.txt": b"b.bddl\n",
 }
@@ -36,12 +37,12 @@ def data(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_libero10_gets_features_and_manifest_only(data):
+def test_libero10_gets_features_targets_and_manifest_only(data):
     hub = FakeHub(REPO_FILES)
     folder = download_dataset("libero10_groot", fetch=hub)
-    assert hub.calls == [("podolinsky/groot-libero-10-features-v3", "dataset", ("pooled/features.npz", "manifest.csv"))]
-    assert sorted(p.name for p in folder.iterdir()) == [".cache", "features.npz", "manifest.csv"]
-    assert (folder / "features.npz").read_bytes() == b"features"
+    assert hub.calls == [("podolinsky/groot-libero-10-features-v3", "dataset", ("pooled/features.npz", "pooled/targets.npz", "manifest.csv"))]
+    assert sorted(p.name for p in folder.iterdir()) == [".cache", "features.npz", "manifest.csv", "targets.npz"]
+    assert (folder / "features.npz").read_bytes() == b"features" and (folder / "targets.npz").read_bytes() == b"targets"
 
 
 def test_liberox_also_gets_the_split_files(data):
@@ -53,7 +54,7 @@ def test_liberox_also_gets_the_split_files(data):
 def test_raw_rollouts_and_extra_pooled_files_are_not_downloaded(data):
     folder = download_dataset("libero10_pi05", fetch=FakeHub(REPO_FILES))
     names = {str(p.relative_to(folder)) for p in folder.rglob("*") if p.is_file()}
-    assert names == {"features.npz", "manifest.csv"}
+    assert names == {"features.npz", "targets.npz", "manifest.csv"}
 
 
 def test_the_pooled_folder_is_gone_after_the_move(data):
@@ -61,19 +62,24 @@ def test_the_pooled_folder_is_gone_after_the_move(data):
     assert not (folder / "pooled").exists()
 
 
-def test_an_existing_features_file_is_never_overwritten(data):
-    download_dataset("libero10_groot", fetch=FakeHub(REPO_FILES))
+@pytest.mark.parametrize("existing", ["features.npz", "targets.npz"])
+def test_an_existing_pooled_file_is_never_overwritten(data, existing):
+    folder = data / "libero10_groot"
+    folder.mkdir()
+    (folder / existing).write_bytes(b"mine")
+    hub = FakeHub(REPO_FILES)
     with pytest.raises(FileExistsError):
-        download_dataset("libero10_groot", fetch=FakeHub(REPO_FILES))
-    assert (data / "libero10_groot" / "features.npz").read_bytes() == b"features"
+        download_dataset("libero10_groot", fetch=hub)
+    assert (folder / existing).read_bytes() == b"mine" and hub.calls == []  # nothing was fetched either
 
 
-def test_a_repo_without_pooled_features_is_an_error(data):
-    without = {k: v for k, v in REPO_FILES.items() if not k.startswith("pooled/")}
-    with pytest.raises(FileNotFoundError, match="has no pooled/features.npz"):
+@pytest.mark.parametrize("missing", ["features.npz", "targets.npz"])
+def test_a_repo_without_a_pooled_file_is_an_error(data, missing):
+    without = {k: v for k, v in REPO_FILES.items() if k != f"pooled/{missing}"}
+    with pytest.raises(FileNotFoundError, match=f"has no pooled/{missing}"):
         download_dataset("libero10_groot", fetch=FakeHub(without))
 
 
 def test_patterns_ask_for_splits_only_where_they_exist():
-    assert hub_patterns(config.get("liberox_groot")) == ["pooled/features.npz", "manifest.csv", "splits/*"]
-    assert hub_patterns(config.get("libero10_groot")) == ["pooled/features.npz", "manifest.csv"]
+    assert hub_patterns(config.get("liberox_groot")) == ["pooled/features.npz", "pooled/targets.npz", "manifest.csv", "splits/*"]
+    assert hub_patterns(config.get("libero10_groot")) == ["pooled/features.npz", "pooled/targets.npz", "manifest.csv"]
