@@ -6,11 +6,9 @@ head outputs go to ``results/<dataset>/<split>/<method>/``. Runs that
 exist are skipped, so a killed sweep resumes; a probe that fails is logged and skipped, never marked finished.
 """
 
-import shutil
 import time
 import traceback
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -22,7 +20,7 @@ from ..data.inputs import Inputs
 from ..data.splits import Split
 from ..grid import Unit
 from ..models.ours import ProbeConfig, all_configs
-from ..results import code_version, is_done, run_dir, split_hash, write_run
+from ..results import code_version, free_gb, hardware_info, is_done, peak_rss_gb, reset_peak_rss, run_dir, run_header, write_run
 from .loop import TrainConfig, default_lr
 from .ours import OursScorer
 from .standardised import StandardisedFeatures, standardise_features
@@ -36,10 +34,6 @@ class Settings:
     save_weights: bool = True
     save_heads: bool = True  # outputs of the mode and CLIP heads, for the architectures that have them
     min_free_gb: float = 20.0  # below this much free disk, scores and history are still written but weights and head outputs are not
-
-
-def free_gb(path: Path) -> float:
-    return shutil.disk_usage(path).free / 1e9
 
 
 def head_arrays(scorer: OursScorer, outputs: dict[str, dict[str, np.ndarray]]) -> dict[str, dict[str, np.ndarray]]:
@@ -58,15 +52,27 @@ def train_probe(cfg: ProbeConfig, variant: str, split: Split, inputs: Inputs, fe
     """Fit one probe and run it on every episode; returns the scorer, the outputs of all its heads and the run's history."""
     train_cfg = TrainConfig(lr=default_lr(cfg.trunk), max_epochs=settings.max_epochs, patience=settings.patience, seed=split.seed)
     scorer = OursScorer(cfg, variant, inputs.episodes, features, inputs.targets, inputs.window, train_cfg, device)
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+    reset_peak_rss()
     start = time.time()
     scorer.fit(split.train, split.val)
+    fit_seconds = time.time() - start
     outputs = scorer.outputs(list(inputs.episodes))
+    score_seconds = time.time() - start - fit_seconds
     r = scorer.result
+    steps = sum(len(s) for s in outputs["score"].values())
     info = {
-        "method": scorer.name, "dataset": inputs.dataset, "split": split.name, "seed": split.seed, "variant": variant, "arch": asdict(cfg),
-        "train_cfg": asdict(train_cfg), "window": inputs.window, "best_epoch": r.best_epoch, "epochs": len(r.val["score"]),
-        "stopped_early": r.stopped_early, "train": r.train, "val": r.val, "seconds": round(time.time() - start, 1),
-        "split_sha256": split_hash(split), "device": device, "finished": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        **run_header(inputs.dataset, split, scorer.name, inputs.window, device, time.time() - start),
+        "variant": variant, "arch": asdict(cfg), "train_cfg": asdict(train_cfg), "best_epoch": r.best_epoch, "epochs": len(r.val["score"]),
+        "stopped_early": r.stopped_early, "train": r.train, "val": r.val,
+        # What the run cost, as the baselines record it (see baselines/sweep.py). The GPU peak includes the split's standardised features,
+        # which the sweep keeps on the device for all its probes; benchmark a single probe for the cost of the method alone.
+        "fit_seconds": round(fit_seconds, 1), "score_seconds": round(score_seconds, 1), "scored_steps": steps,
+        "score_ms_per_step": round(1000 * score_seconds / steps, 4), "n_params": sum(p.numel() for p in scorer.model.parameters()),
+        "n_train_episodes": len(split.train), "state_mb": round(scorer.state_bytes() / 1e6, 2),
+        "peak_gpu_gb": round(torch.cuda.max_memory_allocated() / 1e9, 2) if torch.cuda.is_available() else None,
+        "peak_rss_gb": round(peak_rss_gb(), 2), "hardware": hardware_info(),
     }
     return scorer, outputs, info
 

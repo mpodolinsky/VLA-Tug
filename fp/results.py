@@ -21,6 +21,7 @@ import json
 import os
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping
 
@@ -82,6 +83,41 @@ def code_version() -> dict:
         digest.update(p.relative_to(root).as_posix().encode() + p.read_bytes())
     head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True)
     return {"git_head": head.stdout.strip() or None, "fp_sha256": digest.hexdigest()}
+
+
+def run_header(dataset: str, split: Split, method: str, window: int, device: str, seconds: float) -> dict:
+    """The fields every run's history starts with, for probes and baselines alike: what ran where, with which seed and split, and when."""
+    return {"method": method, "dataset": dataset, "split": split.name, "seed": split.seed, "window": window, "seconds": round(seconds, 1),
+            "split_sha256": split_hash(split), "device": device, "finished": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+
+
+def free_gb(path: Path) -> float:
+    return shutil.disk_usage(path).free / 1e9
+
+
+def hardware_info() -> dict:
+    """What a run's time and memory numbers were measured on."""
+    import platform
+
+    import torch
+
+    gpu = torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None
+    ram_kb = next((int(line.split()[1]) for line in open("/proc/meminfo") if line.startswith("MemTotal")), 0)
+    return {"gpu": gpu.name if gpu else None, "gpu_memory_gb": round(gpu.total_memory / 1e9, 1) if gpu else None, "cpu_threads": os.cpu_count(),
+            "ram_gb": round(ram_kb / 1e6, 1), "torch": torch.__version__, "python": platform.python_version(), "platform": platform.platform()}
+
+
+def reset_peak_rss() -> None:
+    """Restart the process's peak-memory counter (Linux): ``peak_rss_gb`` then reports the peak since this call."""
+    try:
+        Path("/proc/self/clear_refs").write_text("5")
+    except OSError:
+        pass  # not Linux or not permitted: peak_rss_gb then reports the peak over the whole process
+
+
+def peak_rss_gb() -> float:
+    """Peak resident memory of this process in GB (VmHWM), including the data it holds for later runs."""
+    return next((int(line.split()[1]) / 1e6 for line in open("/proc/self/status") if line.startswith("VmHWM")), float("nan"))
 
 
 def write_json(path: Path, obj: dict) -> None:

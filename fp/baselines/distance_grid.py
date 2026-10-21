@@ -14,7 +14,9 @@ from typing import Mapping
 import numpy as np
 
 from ..data.manifest import Episode
+from ..data.splits import Split
 from .distance import DISTANCES, DistanceScorer
+from .registry import Context, register
 
 GRID: dict[str, dict[str, tuple]] = {
     "mahala": dict(cumsum=(False, True)),
@@ -29,10 +31,30 @@ def grid_configs(distance: str) -> list[dict]:
     return [dict(zip(axes, values)) for values in itertools.product(*axes.values())]
 
 
-def grid_scorers(distance: str, episodes: Mapping[str, Episode], features: Mapping[str, np.ndarray], seed: int = 0) -> list[DistanceScorer]:
-    """One unfitted scorer per configuration; each has a unique ``name`` like 'euclidean__k5_cumsum'."""
-    return [DistanceScorer(distance, episodes, features, seed=seed, **cfg) for cfg in grid_configs(distance)]
+def grid_scorers(distance: str, episodes: Mapping[str, Episode], features: Mapping[str, np.ndarray], seed: int = 0,
+                 device: str = "cpu") -> list[DistanceScorer]:
+    """One unfitted scorer per configuration, in grid order (the order the best-configuration choice breaks ties in); each has a
+    unique ``name`` like 'euclidean__k5_cumsum'. Unfitted scorers only point at the shared features; a fitted one holds its training
+    steps, so fit and release them one at a time."""
+    return [DistanceScorer(distance, episodes, features, seed=seed, device=device, **cfg) for cfg in grid_configs(distance)]
 
 
 def all_grid_scorers(episodes, features, seed: int = 0) -> list[DistanceScorer]:
     return [s for d in DISTANCES for s in grid_scorers(d, episodes, features, seed)]
+
+
+def method_names(family: str) -> list[str]:
+    """The methods of a distance family ('euclidean', 'mahalanobis', 'pca_kmeans') in grid order, e.g. euclidean__k1_step ... euclidean__k10_cumsum."""
+    distance = {name: key for key, name in DistanceScorer.NAMES.items()}[family]
+    return [s.name for s in grid_scorers(distance, {}, {})]
+
+
+def _family(distance: str):
+    def build(context: Context, split: Split) -> list[DistanceScorer]:
+        return grid_scorers(distance, context.inputs.episodes, context.features, seed=split.seed, device=context.device)
+
+    return build
+
+
+for _distance, _name in DistanceScorer.NAMES.items():  # the families "mahalanobis", "euclidean" and "pca_kmeans"
+    register(_name)(_family(_distance))

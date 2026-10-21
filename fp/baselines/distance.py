@@ -7,6 +7,8 @@ Copied from baselines/SAFE/failure_prob/model/embed.py (SAFE: Gu et al., NeurIPS
   * no ``BaseModel`` / ``Config`` / ``DataLoader``: the scorer takes per-episode feature arrays and success flags directly, and
     scores one episode at a time instead of a zero-padded batch (the scores at the valid steps are the same);
   * ``seed`` is passed to PCA and KMeans, which SAFE leaves unseeded;
+  * the Mahalanobis pseudo-inverse of the covariance is computed once per fit and passed to ``compute_mahala_dist`` (new optional
+    argument ``inv_cov``) instead of being recomputed on every call; the distances are the same;
   * the cosine distance of the original is not one of our baselines and is left out.
 
 Everything else is as in SAFE, including its behaviours that look odd (listed at the places where they occur). Defaults are those
@@ -16,18 +18,15 @@ Score of a step with feature x:  D_success(x) - D_failure(x)  (D_success(x) only
 the episode with a cumulative sum if ``cumsum``. Higher means more likely to fail.
 """
 
-from typing import Callable, Mapping, Optional
+from typing import Mapping, Optional
 
 import numpy as np
 import torch
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 
-from ..config import DatasetSpec
-from ..data.features import load_features
-from ..data.manifest import Episode, load_manifest
+from ..data.manifest import Episode
 from ..models.base import Scorer
-from .registry import register
 
 DISTANCES = ("mahala", "euclid", "pca_kmeans")
 
@@ -38,6 +37,7 @@ def compute_mahala_dist(
     mean: torch.Tensor,
     cov: torch.Tensor,
     chunk_size: int = 16384,
+    inv_cov: Optional[torch.Tensor] = None,
 ):
     '''
     Compute the Mahalanobis distance between x and the distribution with given mean and covariance,
@@ -55,7 +55,8 @@ def compute_mahala_dist(
     N, D = x.shape
 
     # Compute the inverse of the covariance matrix once.
-    inv_cov = torch.pinverse(cov)  # Shape: (D, D)
+    if inv_cov is None:  # (not in SAFE) a caller that scores many episodes passes the pseudo-inverse it computed once at fit time
+        inv_cov = torch.pinverse(cov)  # Shape: (D, D)
 
     # List to store the results for each chunk.
     m_dists = []
@@ -194,6 +195,28 @@ class DistanceScorer(Scorer):
         self.name = f"{self.NAMES[distance]}__{self.config_tag()}"
         self.trained = False
 
+    @property
+    def config(self) -> dict:
+        """Every setting of this scorer, recorded in the history of its run."""
+        return {"distance": self.distance, "topk": self.topk, "pca_dim": self.pca_dim, "n_clusters": self.n_clusters,
+                "use_success_only": self.use_success_only, "cumsum": self.cumsum, "seed": self.seed}
+
+    def state_bytes(self) -> int | None:
+        """What scoring a new episode needs: the stored success and failure steps (k-NN), or their statistics (Mahalanobis, PCA-KMeans)."""
+        if not self.trained:
+            return None
+        tensors = [getattr(self, name, None) for name in ("feats_succ", "feats_fail", "feats_succ_mean", "feats_fail_mean", "feats_succ_cov", "feats_fail_cov",
+                                                           "inv_cov_succ", "inv_cov_fail", "centroids_succ", "centroids_fail", "feats_succ_pca", "feats_fail_pca")]
+        if self.distance == "euclid":  # k-NN scores against the stored steps only
+            tensors = tensors[:2]
+        elif self.distance == "mahala":  # needs the means and the pseudo-inverse covariances (the covariances themselves are not used to score)
+            tensors = [tensors[i] for i in (2, 3, 6, 7)]
+        else:  # PCA-KMeans projects with the SUCCESS PCA (SAFE's quirk) and scores against the two sets of centroids
+            tensors = tensors[8:10]
+            extra = self.pca_succ.components_.nbytes + self.pca_succ.mean_.nbytes
+            return extra + sum(t.numel() * t.element_size() for t in tensors if t is not None)
+        return sum(t.numel() * t.element_size() for t in tensors if t is not None)
+
     def config_tag(self) -> str:
         """Names the hyperparameters that matter for this distance, e.g. 'k10_cumsum', 'd64_c16_step', 'cumsum'."""
         parts = {"mahala": [], "euclid": [f"k{self.topk}"], "pca_kmeans": [f"d{self.pca_dim}", f"c{self.n_clusters}"]}[self.distance]
@@ -228,6 +251,10 @@ class DistanceScorer(Scorer):
             epsilon = 1e-4 * torch.eye(D).to(self.feats_succ)
             self.feats_succ_cov = torch.cov(self.feats_succ.T) + epsilon  # (D, D)
             self.feats_fail_cov = torch.cov(self.feats_fail.T) + epsilon  # (D, D)
+            # SAFE inverts the covariance inside every distance call; here once per fit (a 6144 x 6144 pseudo-inverse per episode would
+            # dominate the run time). The values are the same.
+            self.inv_cov_succ = torch.pinverse(self.feats_succ_cov)
+            self.inv_cov_fail = torch.pinverse(self.feats_fail_cov)
         elif self.distance == "pca_kmeans":
             # Implement the PCA-KMeans distance metric from https://arxiv.org/pdf/2410.22689
             self.pca_succ = PCA(n_components=self.pca_dim, random_state=self.seed)
@@ -246,55 +273,54 @@ class DistanceScorer(Scorer):
         self.trained = True
 
     # ---- the distance part of EmbedModel.forward ----
-    def _step_scores(self, x: torch.Tensor) -> torch.Tensor:
-        """(T, D) features of one episode -> (T,) per-step score."""
-        # *Distance to the success distribution* positively correlates with *failure score*
-        # *............... failure ............* negatively ............... *failure score*
+    def _distances(self, x: torch.Tensor) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+        """(T, D) features of one episode -> the (T,) distance to the success set and the (T,) distance to the failure set (None if
+        ``use_success_only``). What a distance is depends on ``distance``: Mahalanobis to the class distribution, Euclidean the mean of the
+        ``topk`` nearest stored steps, PCA-KMeans the distance to the nearest centroid."""
+        dist_to_fail = None
         if self.distance == "mahala":
-            scores = compute_mahala_dist(x, self.feats_succ_mean, self.feats_succ_cov)  # (B*T,)
+            dist_to_succ = compute_mahala_dist(x, self.feats_succ_mean, self.feats_succ_cov, inv_cov=self.inv_cov_succ)  # (B*T,)
             if not self.use_success_only:
-                dist_to_fail = compute_mahala_dist(x, self.feats_fail_mean, self.feats_fail_cov)  # (B*T,)
-                scores = scores - dist_to_fail
+                dist_to_fail = compute_mahala_dist(x, self.feats_fail_mean, self.feats_fail_cov, inv_cov=self.inv_cov_fail)  # (B*T,)
         elif self.distance == "euclid":
-            dist_to_succ = compute_dist_closest_k_by_chunk(x, self.feats_succ, self.topk, compute_euclid_dist)  # (B*T, k)
-            scores = dist_to_succ.mean(dim=-1)  # (B*T,)
+            dist_to_succ = compute_dist_closest_k_by_chunk(x, self.feats_succ, self.topk, compute_euclid_dist).mean(dim=-1)  # (B*T,)
             if not self.use_success_only:
-                dist_to_fail = compute_dist_closest_k_by_chunk(x, self.feats_fail, self.topk, compute_euclid_dist)
-                scores = scores - dist_to_fail.mean(dim=-1)
+                dist_to_fail = compute_dist_closest_k_by_chunk(x, self.feats_fail, self.topk, compute_euclid_dist).mean(dim=-1)
         else:  # pca_kmeans
             # SAFE projects x with the SUCCESS PCA and uses that projection for both distances, although the failure centroids
             # were fitted in the failure PCA's coordinates. Kept as in SAFE.
             x_pca = self.pca_succ.transform(x.cpu().numpy())
             x_pca = torch.tensor(x_pca).to(self.feats_succ)
-            dist_to_succ = compute_dist_closest_k_by_chunk(x_pca, self.centroids_succ, 1, compute_euclid_dist)
-            scores = dist_to_succ.mean(dim=-1)  # (B*T,)
+            dist_to_succ = compute_dist_closest_k_by_chunk(x_pca, self.centroids_succ, 1, compute_euclid_dist).mean(dim=-1)  # (B*T,)
             if not self.use_success_only:
-                dist_to_fail = compute_dist_closest_k_by_chunk(x_pca, self.centroids_fail, 1, compute_euclid_dist)
-                scores = scores - dist_to_fail.mean(dim=-1)  # (B*T,)
-        return scores
+                dist_to_fail = compute_dist_closest_k_by_chunk(x_pca, self.centroids_fail, 1, compute_euclid_dist).mean(dim=-1)  # (B*T,)
+        return dist_to_succ, dist_to_fail
 
-    def score(self, keys: list[str]) -> dict[str, np.ndarray]:
+    # ---- the distance part of EmbedModel.forward ----
+    def _step_scores(self, x: torch.Tensor) -> torch.Tensor:
+        """(T, D) features of one episode -> (T,) per-step score."""
+        # *Distance to the success distribution* positively correlates with *failure score*
+        # *............... failure ............* negatively ............... *failure score*
+        dist_to_succ, dist_to_fail = self._distances(x)
+        return dist_to_succ if dist_to_fail is None else dist_to_succ - dist_to_fail
+
+    def score_with_extras(self, keys: list[str]) -> tuple[dict[str, np.ndarray], dict[str, dict[str, np.ndarray]]]:
+        """The scores, and for each episode the (T, 2) distances they are made of: column 0 to the success set, column 1 to the failure set
+        (NaN if ``use_success_only``). From the two columns every variant of this distance can be rebuilt: the step score is column 0 minus
+        column 1, and ``cumsum`` accumulates it."""
         if not self.trained:
             raise RuntimeError("fit() has not been called")  # SAFE warns and returns zeros; an error is safer here
-        out = {}
+        scores, distances = {}, {}
         for k in keys:
-            scores = self._step_scores(self._tensor(k))
-            if self.cumsum:
-                scores = torch.cumsum(scores, dim=0)
-            if scores.isnan().any():
+            dist_to_succ, dist_to_fail = self._distances(self._tensor(k))
+            step = dist_to_succ if dist_to_fail is None else dist_to_succ - dist_to_fail
+            out = torch.cumsum(step, dim=0) if self.cumsum else step
+            if out.isnan().any():
                 raise ValueError("NaN values found in the scores. Check the input data.")
-            out[k] = scores.cpu().numpy()
-        return out
+            scores[k] = out.cpu().numpy()
+            distances[k] = torch.stack([dist_to_succ, torch.full_like(dist_to_succ, float("nan")) if dist_to_fail is None else dist_to_fail], dim=1).cpu().numpy()
+        return scores, {"distances": distances}
 
+    def score(self, keys: list[str]) -> dict[str, np.ndarray]:
+        return self.score_with_extras(keys)[0]
 
-def _factory(distance: str) -> Callable[..., Scorer]:
-    def build(spec: DatasetSpec, split) -> Scorer:
-        episodes = {e.key: e for e in load_manifest(spec.name)}
-        return DistanceScorer(distance, episodes, load_features(spec.name, list(episodes)))
-
-    return build
-
-
-register("mahalanobis")(_factory("mahala"))
-register("euclidean")(_factory("euclid"))
-register("pca_kmeans")(_factory("pca_kmeans"))

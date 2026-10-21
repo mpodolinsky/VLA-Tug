@@ -14,6 +14,7 @@ from fp.calibration.protocol import MAX_CONFORMAL, SAFE_BAND
 from fp.config import RESULTS
 from fp.data.inputs import load_inputs
 from fp.eval.collect import collect_rows, write_csv
+from fp.eval.compute import collect_costs
 from fp.eval.report import report, split_sizes
 from fp.grid import DATASETS
 
@@ -38,7 +39,7 @@ def main() -> None:
         writer = csv.DictWriter(f, fieldnames=list(sizes[0]))
         writer.writeheader()
         writer.writerows(sizes)
-    print(report(rows, tuple(args.calibrators), sizes))
+    print(report(rows, tuple(args.calibrators), sizes, collect_costs(args.root, tuple(args.datasets))))
     print(f"\nlong table: {args.csv} ({len(rows)} rows); split sizes: {args.sizes_csv} ({len(sizes)} splits)")
 
 

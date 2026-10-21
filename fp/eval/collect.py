@@ -10,14 +10,24 @@ from pathlib import Path
 
 import numpy as np
 
-from ..calibration.protocol import MAX_CONFORMAL, parse_probe_name
+from ..calibration.protocol import MAX_CONFORMAL, calibrator_name, parse_probe_name
 from ..config import RESULTS
 from ..models.ours import all_configs
 from ..results import iter_runs, read_json
 from .select_config import Selection, choose_best, group_of
 
 FACTORS = ("trunk", "mha", "heads", "variant")
-COLUMNS = ("dataset", "split", "group", "method", "trunk", "mha", "heads", "variant", "calibrator", "eval_set", "area", "extended", "n_fail", "n_succ")
+COLUMNS = ("dataset", "split", "group", "method", "family", "trunk", "mha", "heads", "variant", "calibrator", "eval_set", "area", "extended", "n_fail", "n_succ")
+OURS = "ours"
+
+
+def family_of(method: str) -> str:
+    """'ours' for our 64 probes; for a baseline the name before '__' (euclidean__k10_cumsum -> euclidean, safe_lstm -> safe_lstm)."""
+    return OURS if parse_probe_name(method) is not None else method.split("__")[0]
+
+
+def probe_rows(rows: list[dict]) -> list[dict]:
+    return [r for r in rows if r["family"] == OURS]
 
 
 def collect_rows(root: Path = RESULTS, datasets: tuple[str, ...] | None = None) -> list[dict]:
@@ -30,7 +40,8 @@ def collect_rows(root: Path = RESULTS, datasets: tuple[str, ...] | None = None) 
         probe = parse_probe_name(method) or {}
         for calibrator, result in read_json(path / "summary.json")["calibrators"].items():
             for eval_set, s in result.get("sets", {}).items():
-                rows.append({"dataset": dataset, "split": split, "group": group_of(split), "method": method, **probe, "calibrator": calibrator,
+                rows.append({"dataset": dataset, "split": split, "group": group_of(split), "method": method, "family": family_of(method), **probe,
+                             "calibrator": calibrator,
                              "eval_set": eval_set, "area": s["area"], "extended": s["extended"], "n_fail": s["n_fail"], "n_succ": s["n_succ"]})
     return rows
 
@@ -55,7 +66,7 @@ def mean_area(rows: list[dict], **where) -> tuple[float, int]:
 def select_from_saved(rows: list[dict], dataset: str, group: str, variant: str, calibrator: str = MAX_CONFORMAL) -> Selection:
     """The best of the 16 architectures of ``variant`` on a dataset's group of splits, chosen on the validation area by ``choose_best``.
     Every architecture must have a validation area on every split of the group."""
-    cells = [r for r in rows if (r["dataset"], r["group"], r["variant"], r["calibrator"], r["eval_set"]) == (dataset, group, variant, calibrator, "val")]
+    cells = [r for r in probe_rows(rows) if (r["dataset"], r["group"], r["variant"], r["calibrator"], r["eval_set"]) == (dataset, group, variant, calibrator, "val")]
     splits = sorted({r["split"] for r in cells})
     area = {(arch_name(r), r["split"]): r["area"] for r in cells}
     per_run = {}
@@ -66,6 +77,24 @@ def select_from_saved(rows: list[dict], dataset: str, group: str, variant: str, 
         per_run[cfg.name] = [area[(cfg.name, s)] for s in splits]
     if not splits:
         raise ValueError(f"no evaluated runs for {dataset}/{group}/{variant}")
+    return choose_best(per_run)
+
+
+def select_baseline_from_saved(rows: list[dict], dataset: str, group: str, family: str, order: list[str]) -> Selection:
+    """The best configuration of a baseline family on a dataset's group of splits, chosen on the validation area by the same ``choose_best``
+    as our probes, with the protocol's calibrator for the family. ``order`` lists the family's methods in grid order (ties go to the earlier)."""
+    calibrator = calibrator_name(order[0])
+    cells = [r for r in rows if (r["dataset"], r["group"], r["family"], r["calibrator"], r["eval_set"]) == (dataset, group, family, calibrator, "val")]
+    splits = sorted({r["split"] for r in cells})
+    if not splits:
+        raise ValueError(f"no evaluated runs of {family} for {dataset}/{group}")
+    area = {(r["method"], r["split"]): r["area"] for r in cells}
+    per_run = {}
+    for method in order:
+        missing = [s for s in splits if (method, s) not in area]
+        if missing:
+            raise ValueError(f"{method} has no validation area on {missing} of {dataset}/{group}")
+        per_run[method] = [area[(method, s)] for s in splits]
     return choose_best(per_run)
 
 
