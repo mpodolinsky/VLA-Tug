@@ -56,7 +56,23 @@ def calibrator_name(method: str) -> str:
                    f"and distance configurations <baseline>__<tag>")
 
 
-def make_calibrator(method: str, seed: int = 0) -> Calibrator:
-    """An unfitted calibrator for the method. ``seed`` is the shuffle seed of the SAFE band (the split seed)."""
-    name = calibrator_name(method)
+def parse_probe_name(method: str) -> dict | None:
+    """The factors of one of our probes, e.g. lstm_mha_modes_clip__onset_pre -> trunk lstm, mha True, heads modes_clip, variant onset_pre;
+    None if ``method`` is not one of our probes."""
+    match = _OURS.match(method)
+    if match is None:
+        return None
+    trunk, mha, heads, variant = match.groups()
+    return {"trunk": trunk, "mha": mha is not None, "heads": heads, "variant": variant}
+
+
+def calibrator_by_name(name: str, seed: int = 0) -> Calibrator:
+    """An unfitted calibrator: 'safe_band' (``seed`` is its shuffle seed, the split seed) or 'max_conformal'."""
+    if name not in (SAFE_BAND, MAX_CONFORMAL):
+        raise KeyError(f"unknown calibrator {name!r}; choose from {SAFE_BAND!r}, {MAX_CONFORMAL!r}")
     return SafeBand(seed=seed) if name == SAFE_BAND else MaxConformal()
+
+
+def make_calibrator(method: str, seed: int = 0) -> Calibrator:
+    """An unfitted calibrator for the method, the one the protocol says it gets."""
+    return calibrator_by_name(calibrator_name(method), seed)

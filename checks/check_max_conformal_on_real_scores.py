@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # python -I does not a
 from _old_outputs import LIBERO10, LIBEROX_MODELS, liberox_episodes, liberox_runs, load_episodes, unseen_tasks  # noqa: E402
 from fp.calibration.max_conformal import MaxConformal  # noqa: E402
 from fp.data.splits import build_split, pick_unseen_tasks  # noqa: E402
-from fp.metrics.curves import ALPHAS  # noqa: E402
+from fp.metrics.curves import ALPHAS_FULL as ALPHAS  # noqa: E402  (this check looks at how FPR moves over every alpha, not only the headline ones)
 
 LEVELS = (0.05, 0.1, 0.2, 0.3)
 

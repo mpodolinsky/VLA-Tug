@@ -5,7 +5,7 @@ import pytest
 
 from fp.calibration.max_conformal import MaxConformal
 from fp.baselines.distance_grid import all_grid_scorers
-from fp.calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_name, make_calibrator
+from fp.calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_by_name, calibrator_name, make_calibrator, parse_probe_name
 from fp.calibration.safe_band import SafeBand
 from fp.data.labels import VARIANTS
 from fp.models.ours import all_configs
@@ -53,6 +53,23 @@ def test_make_calibrator_returns_the_right_class_and_passes_the_seed():
     band = make_calibrator("safe_lstm", seed=7)
     assert isinstance(band, SafeBand) and band.seed == 7 and not band.finite_sample  # SAFE-faithful quantile
     assert isinstance(make_calibrator("lstm_modes_clip__onset_pre"), MaxConformal)
+
+
+def test_probe_names_are_parsed_into_their_factors_and_everything_else_is_not_a_probe():
+    assert parse_probe_name("lstm_mha_modes_clip__onset_pre") == {"trunk": "lstm", "mha": True, "heads": "modes_clip", "variant": "onset_pre"}
+    assert parse_probe_name("mlp_plain__onset_traj") == {"trunk": "mlp", "mha": False, "heads": "plain", "variant": "onset_traj"}
+    for name in ("safe_lstm", "euclidean__k10_cumsum", "lstm_plain", "lstm_plain__nope", "gru_plain__onset"):
+        assert parse_probe_name(name) is None
+    for cfg, variant in itertools.product(all_configs(), VARIANTS):  # every probe name the package builds parses back to its parts
+        parsed = parse_probe_name(f"{cfg.name}__{variant}")
+        assert (parsed["trunk"], parsed["mha"], parsed["variant"]) == (cfg.trunk, cfg.mha, variant)
+
+
+def test_calibrators_can_be_built_by_name_and_an_unknown_name_is_an_error():
+    assert isinstance(calibrator_by_name(MAX_CONFORMAL), MaxConformal)
+    assert isinstance(calibrator_by_name(SAFE_BAND, seed=4), SafeBand) and calibrator_by_name(SAFE_BAND, seed=4).seed == 4
+    with pytest.raises(KeyError):
+        calibrator_by_name("ltt")
 
 
 def test_stac_max_over_steps_is_the_final_value_because_its_scores_are_non_negative():

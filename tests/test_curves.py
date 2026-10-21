@@ -3,7 +3,7 @@ import pytest
 
 from fp.calibration.base import Calibrator
 from fp.data.manifest import Episode
-from fp.metrics.curves import ALPHAS, area_to_fpr, sweep
+from fp.metrics.curves import ALPHAS, ALPHAS_FULL, FPR_MAX, area_to_fpr, evaluate_set, sweep
 
 
 def test_perfect_curve_scores_100():
@@ -48,6 +48,32 @@ def test_alpha_grid_is_inside_zero_one_and_ascending():
     assert ALPHAS[0] > 0 and ALPHAS[-1] < 1 and np.all(np.diff(ALPHAS) > 0)
 
 
+def test_the_headline_grid_ends_where_the_plotted_range_ends_and_the_full_grid_is_kept_for_diagnostics():
+    assert ALPHAS[0] == 0.005 and ALPHAS[-1] == FPR_MAX / 100 == 0.4 and len(ALPHAS) == 80  # alpha is the promised FPR: nothing above 0.4 promises <= 40%
+    assert ALPHAS_FULL[-1] == 0.995 and len(ALPHAS_FULL) == 199 and np.array_equal(ALPHAS_FULL[: len(ALPHAS)], ALPHAS)
+
+
+class OracleAtLargeAlpha(Calibrator):
+    """Never alarms for alpha <= 0.4. For a larger alpha it happens to separate the classes perfectly on the evaluation episodes."""
+
+    name = "oracle"
+
+    def fit(self, success_scores):
+        return self
+
+    def threshold(self, alpha, length):
+        return np.full(length, np.inf if alpha <= 0.4 + 1e-9 else 0.5)
+
+
+def test_a_point_from_an_alpha_above_the_plotted_range_is_not_used_however_good_it_looks():
+    eps = [Episode(f"s{i}", True, "t", 20, None) for i in range(10)] + [Episode(f"f{i}", False, "t", 20, 12) for i in range(10)]
+    sc = {e.key: np.full(20, 0.1 if e.success else 0.9) for e in eps}
+    kept = evaluate_set(OracleAtLargeAlpha(), sc, eps, window=5)  # default grid: only alphas that promise FPR <= 40%
+    assert kept.area == 0.0 and kept.extended  # no alpha up to 0.4 ever alarms: the curve is the single point (0, 0), held flat
+    peeking = evaluate_set(OracleAtLargeAlpha(), sc, eps, window=5, alphas=ALPHAS_FULL)  # the old full grid credits the alpha = 0.5 point at FPR 0
+    assert peeking.area == pytest.approx(100.0)
+
+
 class ConstantByAlpha(Calibrator):
     """Threshold falls linearly with alpha, so FPR rises with alpha on the fixture below."""
 
@@ -87,8 +113,13 @@ def test_sweep_runs_the_whole_alpha_grid_by_default():
     assert len(rows) == len(ALPHAS) and rows[-1]["alpha"] == ALPHAS[-1]
 
 
+class SteepByAlpha(ConstantByAlpha):
+    def threshold(self, alpha, length):
+        return np.full(length, 1.0 - 2 * alpha)  # FPR reaches 40% at alpha 0.2, well inside the grid
+
+
 def test_sweep_stops_at_the_first_row_that_reaches_the_target_fpr():
     eps, sc = episodes_and_scores()
-    rows = sweep(ConstantByAlpha(), sc, eps, window=5, stop_fpr=40.0)
+    rows = sweep(SteepByAlpha(), sc, eps, window=5, stop_fpr=40.0)
     assert rows[-1]["fpr"] >= 40.0 and all(r["fpr"] < 40.0 for r in rows[:-1])
     assert len(rows) < len(ALPHAS)
