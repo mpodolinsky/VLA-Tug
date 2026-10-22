@@ -146,6 +146,19 @@ def test_a_baseline_with_a_missing_validation_area_or_no_runs_is_an_error():
         select_baseline_from_saved(rows, DATASET, "skill", "euclidean", [first])
 
 
+def test_a_tie_between_safe_configurations_goes_to_the_earlier_one_in_grid_order_not_alphabetical_order():
+    from fp.baselines.safe_grid import method_names as safe_names
+    from fp.eval.report import method_order
+
+    names = safe_names("safe_lstm")
+    rows = baseline_rows({m: [30.0, 30.0] for m in names})  # every configuration ties on validation
+    rows = [{**r, "calibrator": "safe_band"} for r in rows]
+    order = method_order(rows, "safe_lstm")
+    assert order == names and order != sorted(order)
+    best = select_baseline_from_saved(rows, DATASET, "task", "safe_lstm", order).best
+    assert best == "safe_lstm__lr3e-5_reg1e-3" and best != sorted(names)[0]  # the first configuration of the grid, not the alphabetical first
+
+
 def test_baseline_rows_never_enter_the_probe_tables_or_the_probe_selection(tmp_path):
     make_tree(tmp_path)
     ours = collect_rows(tmp_path)

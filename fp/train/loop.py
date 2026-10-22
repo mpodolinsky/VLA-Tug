@@ -25,6 +25,11 @@ class TrainConfig:
     max_epochs: int = 100
     patience: int = 15
     seed: int = 0
+    # If set, a batch is run through the model in chunks of this many rollouts and their gradients are accumulated, each chunk weighted by its
+    # share of the batch. The update is the same as for the whole batch only if the step function's loss is a MEAN over the rollouts it is given
+    # (plus terms that do not depend on the data, which a mean preserves), as SAFE's monitor loss with its L2 penalty is; it saves memory and
+    # nothing else. Leave it None for any other loss.
+    micro_batch: int | None = None
 
 
 def default_lr(trunk: str) -> float:
@@ -82,11 +87,14 @@ def fit(model: torch.nn.Module, train: Sequence, val: Sequence, step_fn: Callabl
         order = rng.permutation(len(train))
         pool: dict[str, list[float]] = {}
         for i in range(0, len(order), cfg.batch):
-            step = step_fn(model, [train[j] for j in order[i : i + cfg.batch]])
+            batch = [train[j] for j in order[i : i + cfg.batch]]
             optimiser.zero_grad()
-            step.loss.backward()
+            for k in range(0, len(batch), cfg.micro_batch or len(batch)):
+                chunk = batch[k : k + (cfg.micro_batch or len(batch))]
+                step = step_fn(model, chunk)
+                (step.loss * (len(chunk) / len(batch))).backward()  # a whole batch is one chunk with weight 1
+                _add(pool, step.parts)
             optimiser.step()
-            _add(pool, step.parts)
         for hist, means in ((train_hist, _means(pool)), (val_hist, _evaluate(model, val, step_fn, cfg.batch))):
             for name, value in means.items():
                 hist.setdefault(name, []).append(value)

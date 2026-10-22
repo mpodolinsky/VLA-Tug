@@ -30,7 +30,7 @@ from ..data.splits import Split
 from ..grid import DATASETS, split_priority
 from ..models.base import Scorer
 from ..results import code_version, free_gb, hardware_info, is_done, peak_rss_gb, reset_peak_rss, run_dir, run_header, write_run
-from . import distance_grid  # noqa: F401  (registers the distance families)
+from . import distance_grid, safe_grid  # noqa: F401  (register the distance and the SAFE families)
 from .registry import Context, build
 
 
@@ -92,7 +92,8 @@ def run_scorer(scorer: Scorer, family: str, split: Split, inputs: Inputs, device
     steps = sum(len(s) for s in scores.values())
     state = scorer.state_bytes()
     info = {**run_header(inputs.dataset, split, scorer.name, inputs.window, device, time.time() - start), "family": family, "features": "raw",
-            "config": getattr(scorer, "config", {}), "fit_seconds": round(fit_seconds, 1), "score_seconds": round(score_seconds, 1),
+            "config": getattr(scorer, "config", {}), **(scorer.training_details() or {}),
+            "fit_seconds": round(fit_seconds, 1), "score_seconds": round(score_seconds, 1),
             "scored_steps": steps, "score_ms_per_step": round(1000 * score_seconds / steps, 4),
             "n_train_episodes": len(split.train), "n_train_steps": sum(inputs.episodes[k].n_steps for k in split.train),
             "score_min": float(all_scores.min()), "score_max": float(all_scores.max()),

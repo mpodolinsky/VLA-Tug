@@ -126,6 +126,23 @@ def test_another_seed_changes_the_order_of_the_batches():
     assert a.train["bce"] != b.train["bce"]
 
 
+def test_running_a_batch_in_chunks_gives_the_same_update_for_a_loss_that_is_a_mean_over_the_rollouts():
+    """The memory saving (``micro_batch``): chunks of 3 (with a partial last chunk of 2) weighted by their share of the batch of 8."""
+    whole = fresh()
+    chunked = fresh()
+    cfg = TrainConfig(lr=1e-2, batch=8, max_epochs=5, patience=5, seed=0)
+    fit(whole, dataset(32, 0), dataset(8, 1), step_fn, cfg, select="bce")
+    fit(chunked, dataset(32, 0), dataset(8, 1), step_fn, TrainConfig(lr=1e-2, batch=8, max_epochs=5, patience=5, seed=0, micro_batch=3), select="bce")
+    for a, b in zip(whole.parameters(), chunked.parameters()):
+        assert torch.allclose(a, b, atol=1e-6)
+
+
+def test_the_reported_terms_do_not_depend_on_the_chunking():
+    a = fit(fresh(), dataset(32, 0), dataset(8, 1), step_fn, TrainConfig(lr=1e-2, batch=8, max_epochs=3, patience=3, seed=0), select="bce")
+    b = fit(fresh(), dataset(32, 0), dataset(8, 1), step_fn, TrainConfig(lr=1e-2, batch=8, max_epochs=3, patience=3, seed=0, micro_batch=3), select="bce")
+    assert np.allclose(a.train["bce"], b.train["bce"], atol=1e-5) and np.allclose(a.val["pos"], b.val["pos"], atol=1e-5)
+
+
 def test_empty_sets_are_an_error():
     with pytest.raises(ValueError):
         fit(fresh(), [], dataset(4, 1), step_fn, CFG, select="bce")
