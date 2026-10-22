@@ -39,17 +39,34 @@ class Area:
     extended: bool  # True if the curve never reached fpr_max
 
 
-def area_to_fpr(fpr: np.ndarray, y: np.ndarray, fpr_max: float = FPR_MAX) -> Area:
+def curve_points(fpr: np.ndarray, y: np.ndarray, running_max: bool = True) -> tuple[np.ndarray, np.ndarray]:
+    """The curve as unique ascending x (FPR) with one y each, starting at (0, 0); NaN points are dropped.
+
+    With ``running_max`` (the headline area's rule, for TPR early, which a looser threshold can only raise) y is made monotone and the best of
+    several points at one FPR is the last. Without it (a quantity a looser threshold can lower, such as on-time TPR: an alarm moves from the
+    window to before it) several points at one FPR are averaged and nothing is flattened."""
     fpr, y = np.asarray(fpr, dtype=float), np.asarray(y, dtype=float)
     if fpr.shape != y.shape:
         raise ValueError("fpr and y must have the same shape")
     keep = ~(np.isnan(fpr) | np.isnan(y))
     fpr, y = np.concatenate([[0.0], fpr[keep]]), np.concatenate([[0.0], y[keep]])
     order = np.argsort(fpr, kind="stable")
-    fpr, y = fpr[order], np.maximum.accumulate(y[order])
-    # Several operating points can share one FPR; after the running max the last of them is the best.
+    fpr, y = fpr[order], y[order]
     xs = np.unique(fpr)
-    ys = np.array([y[fpr == x][-1] for x in xs])
+    if running_max:
+        y = np.maximum.accumulate(y)  # several operating points can share one FPR; after the running max the last of them is the best
+        return xs, np.array([y[fpr == x][-1] for x in xs])
+    return xs, np.array([y[fpr == x].mean() for x in xs])
+
+
+def curve_on_grid(fpr: np.ndarray, y: np.ndarray, grid: np.ndarray, running_max: bool = True) -> np.ndarray:
+    """The curve of ``curve_points`` at the FPR values in ``grid``: linear between points, held flat past the last one."""
+    xs, ys = curve_points(fpr, y, running_max)
+    return np.interp(grid, xs, ys)
+
+
+def area_to_fpr(fpr: np.ndarray, y: np.ndarray, fpr_max: float = FPR_MAX) -> Area:
+    xs, ys = curve_points(fpr, y)
     extended = bool(xs[-1] < fpr_max)
     y_end = float(np.interp(fpr_max, xs, ys))  # np.interp holds the last value flat past xs[-1]
     knots_x, knots_y = np.append(xs[xs < fpr_max], fpr_max), np.append(ys[xs < fpr_max], y_end)

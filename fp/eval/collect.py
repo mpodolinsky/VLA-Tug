@@ -83,6 +83,8 @@ def select_from_saved(rows: list[dict], dataset: str, group: str, variant: str, 
 def select_baseline_from_saved(rows: list[dict], dataset: str, group: str, family: str, order: list[str]) -> Selection:
     """The best configuration of a baseline family on a dataset's group of splits, chosen on the validation area by the same ``choose_best``
     as our probes, with the protocol's calibrator for the family. ``order`` lists the family's methods in grid order (ties go to the earlier)."""
+    if not order:  # a family without a fixed grid is ordered by the names of its evaluated runs, so no runs means no methods
+        raise ValueError(f"no evaluated runs of {family} for {dataset}/{group}")
     calibrator = calibrator_name(order[0])
     cells = [r for r in rows if (r["dataset"], r["group"], r["family"], r["calibrator"], r["eval_set"]) == (dataset, group, family, calibrator, "val")]
     splits = sorted({r["split"] for r in cells})
