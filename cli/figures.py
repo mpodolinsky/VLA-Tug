@@ -4,6 +4,8 @@ The paper's main table and curve figures, from the evaluated runs under results/
 
     table_main.tex / .csv    one row per method: area under TPR early vs FPR (seen and unseen) for each setting, the calibrator, and the cost
                              on LIBERO-X; table_main_std.tex adds the spread over splits; chosen.csv names the configuration behind every cell
+    table_modes.tex / .csv   failure-mode prediction on LIBERO-X: top-1 and top-3 accuracy of the mode head at the probe's own alarm and at the
+                             true onset (an upper bound), against the most-common-mode baselines (fp/eval/modes.py)
     curves_tpr_early         TPR early against FPR for every setting and method (.png and .pdf): a row for the seen tasks on top, one for
                              the unseen tasks below
     curves_tpr_on_time       the same with the on-time TPR
@@ -19,7 +21,8 @@ from pathlib import Path
 
 from fp.calibration.protocol import calibrator_name
 from fp.config import RESULTS
-from fp.eval import figures, plots, tables
+from fp.data.inputs import load_inputs
+from fp.eval import figures, modes, plots, tables
 from fp.eval.collect import collect_rows
 from fp.eval.compute import collect_costs
 
@@ -70,17 +73,41 @@ def main() -> None:
             print(f"python -m cli.train --out {args.costs} --datasets liberox_groot --variants {variant} --probes {arch} --splits {' '.join(splits)}")
         return
 
+    args.out.mkdir(parents=True, exist_ok=True)
+    if rows:
+        write_main_table(args, rows, chosen)
+        write_curves(args, rows, chosen)
+    else:
+        print(f"no evaluated runs under {args.root} (python -m cli.evaluate first): the main table and the curves are skipped")
+    write_mode_table(args)
+
+
+def write_main_table(args, rows: list[dict], chosen: dict) -> None:
     costs = {"baselines": collect_costs(args.root, ("liberox_groot",)),
              "ours": collect_costs(args.costs, ("liberox_groot",)) if args.costs.exists() else []}
     settings = [s.label for s in figures.SETTINGS]
     table = table_rows(rows, chosen, costs)
-    args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "table_main.tex").write_text(tables.latex_table(table, settings))
     (args.out / "table_main_std.tex").write_text(tables.latex_table(table, settings, with_std=True))
     write_csv(args.out / "table_main.csv", tables.csv_rows(table, settings))
     write_csv(args.out / "chosen.csv", [{"setting": s, "entry": e, "method": m, "calibrator": calibrator_name(m)} for (s, e), m in chosen.items()])
     print("wrote", args.out / "table_main.tex", "(+ _std, .csv) and chosen.csv")
 
+
+def write_mode_table(args) -> None:
+    """The failure-mode table of LIBERO-X (fp/eval/modes.py); skipped with a message when its probe runs or the data are not there."""
+    try:
+        blocks = modes.mode_blocks(modes.mode_results(load_inputs("liberox_groot"), args.root))
+    except (FileNotFoundError, KeyError) as error:
+        print(f"no failure-mode table: {error}")
+        return
+    labels = [s.label for s in modes.LIBEROX]
+    (args.out / "table_modes.tex").write_text(tables.mode_latex_table(blocks, labels))
+    write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(blocks, labels))
+    print("wrote", args.out / "table_modes.tex", "and table_modes.csv")
+
+
+def write_curves(args, rows: list[dict], chosen: dict) -> None:
     for metric, ylabel in (("tpr_early", "TPR early (%)"), ("tpr_on_time", "TPR on-time (%)")):
         panels = []
         for eval_set, row_label in (("seen", "Seen tasks"), ("unseen", "Unseen tasks")):  # seen on top

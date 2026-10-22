@@ -1,0 +1,137 @@
+"""Failure-mode prediction of our probes on LIBERO-X, from the saved runs (no model is run).
+
+The mode head of a probe gives, at every policy step, logits over the 10 failure modes (``fp.data.targets.MODE_NAMES``). A failed episode has one
+true mode, so the head is scored per failed episode: the mean softmax over a window of steps, ``window`` steps before an anchor step plus the anchor
+itself (the on-time window of the detection metric: 7 steps), and the mode(s) with the highest mean probability are the prediction. Top-k accuracy is
+the share of failed episodes whose true mode is among the k highest. Two anchors:
+
+    oracle onset   the true failure onset: an upper bound, since a deployed system does not know when the failure starts
+    own detection  the first step at which the probe's own score reaches its calibrated threshold (max-conformal at ``ALPHA``, the protocol's
+                   calibrator for our probes): what a deployed system could do. It exists only for the failed episodes that get an alarm, so
+                   accuracy is over those, with the share they make up (``coverage``) reported next to it.
+
+``oracle_on_detected`` is the oracle rule on exactly the episodes of own detection, which isolates the effect of the timing from that of the
+episodes. Baselines: always predicting the most common training mode(s) of the split, and a uniform guess among the training modes.
+
+The numbers are per split, then the mean over the splits of a setting (every split counts once), for the seen and the unseen episodes, in percent.
+"""
+
+from collections import Counter, defaultdict
+from typing import Mapping
+
+import numpy as np
+
+from ..calibration.protocol import make_calibrator
+from ..metrics.outcomes import alarm_step
+from ..results import read_scores, run_dir
+from .figures import ENTRIES, SETTINGS, Entry
+from .select_config import group_of
+from .tables import ModeBlock, ModeRow
+
+ALPHA = 0.2  # the operating point of own detection: at most 20% false alarms on exchangeable successes
+TOP_K = (1, 3)
+SETS = ("seen", "unseen")
+LIBEROX = tuple(s for s in SETTINGS if s.dataset == "liberox_groot")
+
+
+def softmax(x: np.ndarray) -> np.ndarray:
+    e = np.exp(x - x.max(axis=-1, keepdims=True))
+    return e / e.sum(axis=-1, keepdims=True)
+
+
+def window_probs(logits: np.ndarray, anchor: int, window: int) -> np.ndarray:
+    """(n_modes,) mean softmax over the steps ``anchor - window`` ... ``anchor`` (clipped at the first step)."""
+    return softmax(logits[max(anchor - window, 0) : anchor + 1]).mean(axis=0)
+
+
+def hit(probs: np.ndarray, true: int, k: int) -> bool:
+    """Whether the true mode is among the k most probable (ties are broken by the lower mode index)."""
+    return bool(true in np.argsort(-probs, kind="stable")[:k])
+
+
+def baseline_accuracy(train_modes: list[int], true: list[int], k: int) -> tuple[float, float]:
+    """(majority, random) top-k accuracy over the true modes ``true``: always the k most common training modes; a uniform guess of k distinct modes
+    among those that occur in the training failures (a true mode that never does can never be hit)."""
+    order = [m for m, _ in Counter(train_modes).most_common()]
+    present = set(train_modes)
+    majority = float(np.mean([t in order[:k] for t in true]))
+    random = float(np.mean([(t in present) * min(k, len(present)) / len(present) for t in true]))
+    return majority, random
+
+
+def evaluate_split(logits: Mapping[str, np.ndarray], scores: Mapping[str, np.ndarray], episodes, true_modes: Mapping[str, int], keys: list[str], calibrator,
+                   alpha: float, window: int) -> dict:
+    """Top-k accuracies of one probe on the failed episodes among ``keys``: ``oracle`` (all of them), ``detected`` and ``oracle_on_detected`` (those
+    with an alarm; NaN if none), and ``coverage`` (the share with an alarm), for each k of ``TOP_K``. Needs at least one failed episode."""
+    failed = [k for k in keys if not episodes[k].success]
+    threshold = calibrator.threshold(alpha, max(len(scores[k]) for k in failed))
+    alarms = {k: alarm_step(scores[k], threshold) for k in failed}
+    detected = [k for k in failed if alarms[k] is not None]
+
+    def accuracy(selected: list[str], anchor, k: int) -> float:
+        return float(np.mean([hit(window_probs(logits[e], anchor(e), window), true_modes[e], k) for e in selected])) if selected else float("nan")
+
+    onset = lambda e: episodes[e].onset  # noqa: E731
+    out = {"coverage": len(detected) / len(failed)}
+    for k in TOP_K:
+        out[f"oracle{k}"] = accuracy(failed, onset, k)
+        out[f"detected{k}"] = accuracy(detected, lambda e: alarms[e], k)
+        out[f"oracle_on_detected{k}"] = accuracy(detected, onset, k)
+    return out
+
+
+def mode_results(inputs, root, entries: list[Entry] | None = None, settings=LIBEROX, alpha: float = ALPHA) -> dict[tuple, float]:
+    """{(rule, label, metric, setting label, set): percent}, the mean over the splits of the setting. Rules: majority, random (no label) and, for each
+    of our entries, oracle, detected, oracle_on_detected and coverage (metric 'top1', 'top3', or 'share')."""
+    entries = [e for e in ENTRIES if e.variant] if entries is None else entries
+    per_split = defaultdict(list)
+    for setting in settings:
+        for name in (n for n in inputs.splits if group_of(n) == setting.group):
+            split = inputs.splits[name]
+            train_modes = [int(inputs.targets.modes[k]) for k in split.train if not inputs.episodes[k].success]
+            sets = {e: [k for k in getattr(split, e)] for e in SETS}
+            sets = {e: keys for e, keys in sets.items() if any(not inputs.episodes[k].success for k in keys)}  # a set without a failure has no mode to predict
+            true_modes = {k: int(inputs.targets.modes[k]) for keys in sets.values() for k in keys if not inputs.episodes[k].success}
+            for eval_set, keys in sets.items():
+                for k in TOP_K:
+                    majority, random = baseline_accuracy(train_modes, [true_modes[e] for e in keys if e in true_modes], k)
+                    per_split[("majority", None, f"top{k}", setting.label, eval_set)].append(majority)
+                    per_split[("random", None, f"top{k}", setting.label, eval_set)].append(random)
+            for entry in entries:
+                folder = run_dir(inputs.dataset, name, f"{entry.architecture}__{entry.variant}", root)
+                scores = read_scores(folder)
+                calibrator = make_calibrator(folder.name, seed=split.seed).fit([scores[k] for k in split.calibration if inputs.episodes[k].success])
+                with np.load(folder / "mode_logits.npz") as z:
+                    logits = {k: z[k] for k in true_modes}
+                for eval_set, keys in sets.items():
+                    result = evaluate_split(logits, scores, inputs.episodes, true_modes, keys, calibrator, alpha, inputs.window)
+                    per_split[("detected", entry.label, "share", setting.label, eval_set)].append(result["coverage"])
+                    for k in TOP_K:
+                        for rule in ("oracle", "detected", "oracle_on_detected"):
+                            per_split[(rule, entry.label, f"top{k}", setting.label, eval_set)].append(result[f"{rule}{k}"])
+    return {key: 100 * float(np.nanmean(v)) for key, v in per_split.items() if not np.all(np.isnan(v))}
+
+
+def mode_blocks(results: Mapping[tuple, float], entries: list[Entry] | None = None, settings=LIBEROX) -> list[ModeBlock]:
+    """The blocks of the failure-mode table from ``mode_results``: top-1 and top-3 accuracy (baselines, then our probe at its own alarm, then at the
+    oracle onset), the share of failures that get an alarm, and, for the CSV only, the oracle rule on the failures that have an alarm."""
+    entries = [e for e in ENTRIES if e.variant] if entries is None else entries
+    columns = [(s.label, e) for s in settings for e in SETS]
+
+    def values(rule: str, label: str | None, metric: str) -> list[float | None]:
+        return [results.get((rule, label, metric, s, e)) for s, e in columns]
+
+    blocks = []
+    for k in TOP_K:
+        metric = f"top{k}"
+        rows = [ModeRow("Majority class" if k == 1 else f"{k} most common modes", "baseline", values("majority", None, metric)),
+                ModeRow("Random", "baseline", values("random", None, metric))]
+        rows += [ModeRow(f"{e.label}, own detection", "detected", values("detected", e.label, metric)) for e in entries]
+        rows += [ModeRow(f"{e.label}, oracle onset", "oracle", values("oracle", e.label, metric)) for e in entries]
+        blocks.append(ModeBlock(f"Top-{k} accuracy (%)", rows))
+    blocks.append(ModeBlock("Failed episodes with an alarm (%)", [ModeRow(f"{e.label}, own detection", "detected", values("detected", e.label, "share")) for e in entries],
+                            marked=False))
+    for k in TOP_K:
+        blocks.append(ModeBlock(f"Top-{k} accuracy (%), oracle onset on the failures that have an alarm",
+                                [ModeRow(f"{e.label}, oracle onset", "oracle", values("oracle_on_detected", e.label, f"top{k}")) for e in entries], marked=False, in_latex=False))
+    return blocks

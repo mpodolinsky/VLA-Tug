@@ -1,0 +1,225 @@
+import csv
+import sys
+from types import SimpleNamespace
+
+import numpy as np
+import pytest
+
+from cli import figures as cli_figures
+from fp.calibration.max_conformal import MaxConformal
+from fp.data.manifest import Episode
+from fp.data.splits import Split
+from fp.eval import figures, modes, tables
+from fp.eval.modes import LIBEROX, baseline_accuracy, evaluate_split, hit, mode_blocks, mode_results, softmax, window_probs
+
+ARCH = figures.OURS_ARCHITECTURE
+TASK = next(s for s in LIBEROX if s.group == "task")
+
+
+# ---------------------------------------------------------------- the pieces
+def test_softmax_rows_sum_to_one_and_do_not_overflow():
+    p = softmax(np.array([[1000.0, 1000.0, 0.0], [0.0, 1.0, 2.0]]))
+    assert np.allclose(p.sum(axis=1), 1) and np.allclose(p[0], [0.5, 0.5, 0.0])
+
+
+def test_the_window_is_the_steps_before_the_anchor_and_the_anchor_clipped_at_the_first_step():
+    logits = np.zeros((10, 3))
+    logits[3:6, 0] = 20.0  # steps 3, 4, 5 confidently mode 0
+    logits[:3, 1] = 20.0  # steps 0, 1, 2 confidently mode 1
+    assert np.allclose(window_probs(logits, anchor=5, window=2), [1, 0, 0], atol=1e-6)  # steps 3, 4, 5
+    assert np.allclose(window_probs(logits, anchor=5, window=3), [0.75, 0.25, 0], atol=1e-6)  # steps 2..5: one step of mode 1, three of mode 0
+    assert np.allclose(window_probs(logits, anchor=1, window=6), [0, 1, 0], atol=1e-6)  # clipped at step 0: steps 0 and 1
+    assert len(range(max(7 - 6, 0), 7 + 1)) == 7  # the detection metric's window: 6 steps before the anchor and the anchor
+
+
+def test_top_k_hit_with_ties_going_to_the_lower_mode():
+    p = np.array([0.1, 0.4, 0.3, 0.2])
+    assert [hit(p, t, 1) for t in range(4)] == [False, True, False, False]
+    assert [hit(p, t, 3) for t in range(4)] == [False, True, True, True]  # the three most probable are modes 1, 2 and 3
+    assert hit(np.array([0.25] * 4), 0, 1) and not hit(np.array([0.25] * 4), 1, 1)  # a tie: mode 0 comes first
+
+
+def test_the_baselines_by_hand():
+    train = [0, 0, 0, 1, 1, 2]  # modes 0, 1, 2 occur; 0 is the most common, then 1, then 2
+    true = [0, 1, 3]  # 3 never occurs in training
+    assert baseline_accuracy(train, true, 1) == (pytest.approx(1 / 3), pytest.approx(2 / 9))  # always 0 hits one; a guess hits 1/3 of those present
+    assert baseline_accuracy(train, true, 3) == (pytest.approx(2 / 3), pytest.approx(2 / 3))  # the three modes cover 0 and 1 but not 3
+
+
+# ---------------------------------------------------------------- one split
+def make_episodes():
+    return {"S2": Episode("S2", True, "t", 8, None, "a"), "S3": Episode("S3", True, "t", 8, None, "a"),
+            "A": Episode("A", False, "t", 8, 5, "a"), "B": Episode("B", False, "t", 8, 5, "a")}
+
+
+def logits_for(early, late, steps=8):
+    out = np.zeros((steps, 4))
+    out[:3, early] = 5.0  # what the head says in the first steps
+    out[3:, late] = 5.0  # and from step 3 on
+    return out
+
+
+def test_oracle_and_own_detection_use_different_windows_and_only_alarmed_failures_have_a_detection():
+    episodes = make_episodes()
+    flat = lambda v: np.full(8, v)
+    alarm_at_2 = np.array([0.1, 0.1, 0.8, 0.8, 0.8, 0.8, 0.8, 0.8])
+    scores = {"S2": flat(0.5), "S3": flat(0.7), "A": alarm_at_2, "B": flat(0.6)}  # the threshold is the larger success maximum, 0.7: A alarms at step 2, B never
+    calibrator = MaxConformal().fit([scores["S2"], scores["S3"]])
+    # mode 0 is the truth. Steps 1..2 (the detection window with window = 1) say mode 1 with mode 2 second and mode 0 third; steps 4..5 (the oracle window) say 0
+    wrong_early = np.zeros((8, 4))
+    wrong_early[:3] = [1, 5, 3, 0]
+    wrong_early[3:, 0] = 5.0
+    logits = {"A": wrong_early, "B": logits_for(early=0, late=0)}
+    result = evaluate_split(logits, scores, episodes, {"A": 0, "B": 0}, ["S2", "S3", "A", "B"], calibrator, alpha=0.5, window=1)
+    assert result["coverage"] == 0.5  # B has no alarm
+    assert (result["oracle1"], result["oracle3"]) == (1.0, 1.0)  # at the onset both are right
+    assert (result["detected1"], result["detected3"]) == (0.0, 1.0)  # A at its alarm: top-1 is mode 1, but mode 0 is in the top 3
+    assert (result["oracle_on_detected1"], result["oracle_on_detected3"]) == (1.0, 1.0)  # the oracle on the same episode (A) only
+
+
+def test_no_alarm_at_all_gives_nan_for_the_detection_rule_and_zero_coverage():
+    episodes = make_episodes()
+    scores = {"S2": np.full(8, 0.5), "S3": np.full(8, 0.5), "A": np.full(8, 0.4), "B": np.full(8, 0.4)}  # no failure reaches the threshold (0.5)
+    calibrator = MaxConformal().fit([scores["S2"], scores["S3"]])
+    logits = {"A": logits_for(0, 0), "B": logits_for(0, 0)}
+    result = evaluate_split(logits, scores, episodes, {"A": 0, "B": 0}, list(episodes), calibrator, alpha=0.9, window=1)
+    assert result["coverage"] == 0.0 and np.isnan(result["detected1"]) and np.isnan(result["oracle_on_detected3"]) and result["oracle1"] == 1.0
+
+
+# ---------------------------------------------------------------- the whole computation on a synthetic results folder
+SUCCESSES = [f"S{i}" for i in range(10)]
+FAILURES = [f"F{i}" for i in range(10)]
+TRUE_MODE = {"F0": 0, "F1": 0, "F2": 1, "F3": 2, "F4": 0, "F5": 1, "F6": 0, "F7": 0, "F8": 2, "F9": 1}
+
+
+def synthetic_inputs():
+    episodes = {k: Episode(k, True, "t", 8, None, "a") for k in SUCCESSES} | {k: Episode(k, False, "t", 8, 4, "a") for k in FAILURES}
+    train, val = ["S0", "S1", "F0", "F1", "F2", "F3"], ["S9", "F7"]
+    calibration, seen, unseen = [f"S{i}" for i in range(2, 7)], ["S7", "F4", "F5", "F6"], ["S8", "F7", "F8", "F9"]
+    splits = {f"task_seed{i}": Split(f"task_seed{i}", train, val, calibration, seen, unseen, seed=i) for i in range(2)}
+    return SimpleNamespace(dataset="liberox_groot", episodes=episodes, targets=SimpleNamespace(modes=TRUE_MODE), splits=splits, window=1)
+
+
+def write_runs(root, early_for_split):
+    """Every variant of our one architecture on both splits. Successes top out at 0.1 ... 0.5 on the calibration episodes (threshold 0.5 at alpha 0.2);
+    failures alarm at step 2 and their onset is step 4. The head says ``early_for_split[split]`` in steps 0..2 and the true mode from step 3 on."""
+    for split, early in early_for_split.items():
+        for variant in ("onset_pre", "onset_traj", "onset", "onset_post"):
+            folder = root / "liberox_groot" / split / f"{ARCH}__{variant}"
+            folder.mkdir(parents=True)
+            scores = {f"S{i}": np.full(8, 0.1 * (i - 1)) for i in range(10)} | {k: np.array([0, 0, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]) for k in FAILURES}
+            np.savez(folder / "scores.npz", **scores)
+            logits = {}
+            for k, mode in TRUE_MODE.items():
+                out = np.zeros((8, 4))
+                out[:3, mode if early == "true" else 3] = 5.0
+                out[3:, mode] = 5.0
+                logits[k] = out
+            np.savez(folder / "mode_logits.npz", **logits)
+
+
+@pytest.fixture
+def results(tmp_path):
+    write_runs(tmp_path, {"task_seed0": "true", "task_seed1": "wrong"})  # in the second split the head is wrong until step 3
+    return mode_results(synthetic_inputs(), tmp_path, settings=[TASK]), tmp_path
+
+
+def test_the_results_are_means_over_the_splits_in_percent_with_the_baselines_from_each_splits_training_failures(results):
+    r, _ = results
+    key = lambda rule, label, metric, s: (rule, label, metric, "LIBERO-X task", s)
+    assert r[key("majority", None, "top1", "seen")] == pytest.approx(100 * 2 / 3)  # always mode 0; seen failures have modes 0, 1, 0
+    assert r[key("majority", None, "top1", "unseen")] == pytest.approx(100 / 3) and r[key("majority", None, "top3", "seen")] == pytest.approx(100.0)
+    assert r[key("random", None, "top1", "seen")] == pytest.approx(100 / 3) and r[key("random", None, "top3", "unseen")] == pytest.approx(100.0)
+    label = "Ours (onset_pre)"
+    assert r[key("oracle", label, "top1", "seen")] == r[key("oracle", label, "top1", "unseen")] == pytest.approx(100.0)  # at the onset the head is right
+    assert r[key("detected", label, "top1", "seen")] == pytest.approx(50.0)  # right at the alarm in one split, wrong in the other
+    assert r[key("detected", label, "share", "seen")] == pytest.approx(100.0)  # every failure alarms at step 2
+    assert r[key("oracle_on_detected", label, "top1", "unseen")] == pytest.approx(100.0)
+
+
+def test_a_missing_run_is_an_error_not_a_silent_gap(tmp_path):
+    write_runs(tmp_path, {"task_seed0": "true"})  # task_seed1 has no runs
+    with pytest.raises(FileNotFoundError):
+        mode_results(synthetic_inputs(), tmp_path, settings=[TASK])
+
+
+def test_a_set_without_a_failure_is_left_out(tmp_path):
+    write_runs(tmp_path, {"task_seed0": "true", "task_seed1": "true"})
+    inputs = synthetic_inputs()
+    inputs.splits = {n: Split(n, s.train, s.val, s.calibration, ["S7"], s.unseen, s.seed) for n, s in inputs.splits.items()}  # the seen set has only a success
+    r = mode_results(inputs, tmp_path, settings=[TASK])
+    assert not any(key[4] == "seen" for key in r) and ("majority", None, "top1", "LIBERO-X task", "unseen") in r
+
+
+def test_the_blocks_have_the_baselines_then_own_detection_then_the_oracle_and_unmarked_extras(results):
+    r, _ = results
+    blocks = mode_blocks(r, settings=[TASK])
+    assert [b.title for b in blocks] == ["Top-1 accuracy (%)", "Top-3 accuracy (%)", "Failed episodes with an alarm (%)",
+                                         "Top-1 accuracy (%), oracle onset on the failures that have an alarm", "Top-3 accuracy (%), oracle onset on the failures that have an alarm"]
+    assert [b.in_latex for b in blocks] == [True, True, True, False, False] and [b.marked for b in blocks] == [True, True, False, False, False]
+    top1, top3 = blocks[0], blocks[1]
+    assert [r_.group for r_ in top1.rows] == ["baseline"] * 2 + ["detected"] * 4 + ["oracle"] * 4
+    assert [top1.rows[0].label, top3.rows[0].label, top1.rows[2].label, top1.rows[6].label] == ["Majority class", "3 most common modes", "Ours (onset_pre), own detection", "Ours (onset_pre), oracle onset"]
+    assert len(top1.rows[2].values) == 2 and top1.rows[2].values[0] == pytest.approx(50.0)  # seen and unseen of the one setting
+
+
+# ---------------------------------------------------------------- the formatting
+def toy_blocks():
+    rows = [tables.ModeRow("Majority class", "baseline", [60.0, 30.0]), tables.ModeRow("Random", "baseline", [10.0, 10.0]),
+            tables.ModeRow("Ours (onset_pre), own detection", "detected", [55.0, 40.0]), tables.ModeRow("Ours (onset_pre), oracle onset", "oracle", [90.0, 80.0])]
+    return [tables.ModeBlock("Top-1 accuracy (%)", rows),
+            tables.ModeBlock("Failed episodes with an alarm (%)", [tables.ModeRow("Ours (onset_pre), own detection", "detected", [70.0, 65.0])], marked=False),
+            tables.ModeBlock("Hidden block", [tables.ModeRow("Hidden row", "oracle", [1.0, 2.0])], marked=False, in_latex=False)]
+
+
+def test_the_best_and_second_best_are_marked_among_the_deployable_rows_only_and_the_oracle_never():
+    tex = tables.mode_latex_table(toy_blocks(), ["LIBERO-X task"])
+    lines = tex.splitlines()
+    majority = next(line for line in lines if line.startswith("Majority class"))
+    detected = next(line for line in lines if line.startswith(r"\rowcolor{gray!15} Ours (onset\_pre), own detection") and "70.0" not in line)
+    oracle = next(line for line in lines if "oracle onset" in line)
+    assert r"\textbf{60.0}" in majority and r"\textit{55.0}" in detected and r"\textbf{40.0}" in detected  # seen: 60 > 55 > 10; unseen: 40 > 30 > 10
+    assert r"\textit{30.0}" in majority and "textbf" not in oracle and "textit" not in oracle  # the oracle's 90 and 80 are not marked
+    assert not majority.startswith(r"\rowcolor") and oracle.startswith(r"\rowcolor{gray!15}")  # our rows are shaded, the baselines are not
+    coverage = next(line for line in lines if "70.0" in line)
+    assert "textbf" not in coverage and "textit" not in coverage  # an unmarked block
+    assert "Hidden" not in tex and r"Top-1 accuracy (\%)" in tex and r"Failed episodes with an alarm (\%)" in tex
+
+
+def test_the_mode_table_is_a_full_width_float_with_balanced_braces_and_rules_between_the_groups():
+    tex = tables.mode_latex_table(toy_blocks(), ["LIBERO-X task"])
+    order = [tex.index(s) for s in (r"\begin{table*}", r"\caption{", r"\label{tab:modes}", r"\resizebox{\textwidth}{!}{%", r"\begin{tabular}", r"\end{tabular}%", r"\end{table*}")]
+    assert order == sorted(order) and tex.count("{") == tex.count("}") and "10 modes" in tex and r"$\alpha = 0.2$" in tex
+    block = tex[tex.index("Majority class") : tex.index(r"Ours (onset\_pre), oracle onset")]
+    assert block.count(r"\midrule") == 2  # baselines | own detection | oracle
+
+
+def test_the_csv_has_every_block_including_those_left_out_of_the_latex():
+    records = tables.mode_csv_rows(toy_blocks(), ["LIBERO-X task"])
+    assert {r["block"] for r in records} == {"Top-1 accuracy (%)", "Failed episodes with an alarm (%)", "Hidden block"}
+    assert records[0] == {"block": "Top-1 accuracy (%)", "method": "Majority class", "group": "baseline", "LIBERO-X task seen": 60.0, "LIBERO-X task unseen": 30.0}
+    assert tables.mode_csv_rows([tables.ModeBlock("b", [tables.ModeRow("r", "baseline", [None, 1.0])])], ["LIBERO-X task"])[0]["LIBERO-X task seen"] is None
+
+
+# ---------------------------------------------------------------- the command
+def test_the_command_writes_the_mode_table_when_the_runs_exist_and_says_so_when_they_do_not(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "results"
+    write_runs(root, {"task_seed0": "true", "task_seed1": "wrong"})
+    inputs = synthetic_inputs()
+    monkeypatch.setattr(cli_figures, "load_inputs", lambda dataset: inputs)
+    monkeypatch.setattr(modes, "LIBEROX", (TASK,))
+    original = modes.mode_results
+    monkeypatch.setattr(modes, "mode_results", lambda i, r, **kw: original(i, r, settings=[TASK], **kw))
+    monkeypatch.setattr(sys, "argv", ["figures", "--root", str(root), "--out", str(tmp_path / "out"), "--costs", str(tmp_path / "none")])
+    cli_figures.main()
+    out = tmp_path / "out"
+    assert "wrote" in capsys.readouterr().out and (out / "table_modes.tex").exists()
+    rows = list(csv.DictReader(open(out / "table_modes.csv")))
+    assert any(r["method"] == "Ours (onset_pre), own detection" and float(r["LIBERO-X task seen"]) == 50.0 for r in rows)
+    # no runs: the table is skipped with a message and the rest is still written
+    monkeypatch.setattr(sys, "argv", ["figures", "--root", str(tmp_path / "empty"), "--out", str(tmp_path / "out2"), "--costs", str(tmp_path / "none")])
+    (tmp_path / "empty").mkdir()
+    cli_figures.main()
+    printed = capsys.readouterr().out
+    assert "no failure-mode table" in printed and "no evaluated runs" in printed and not (tmp_path / "out2" / "table_modes.tex").exists()
+    assert not (tmp_path / "out2" / "table_main.tex").exists()  # nothing evaluated: no main table and no curves, and no crash
