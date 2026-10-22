@@ -3,7 +3,8 @@
     SAFE-MLP, SAFE-LSTM        SAFE functional band (their own). All 12 configurations of each, named
                                <family>__lr<lr>_reg<lambda_reg> (see baselines/safe_grid.py), get it; so do the same models trained on
                                rollouts cut at the onset (families safe_mlp_pre, safe_lstm_pre), which are still SAFE models.
-    FailureSpot                SAFE-style band
+    FailureSpot                SAFE functional band (the paper's own conformal band). The nine (eta1, eta2) configurations of
+                               each detector, named failurespot_<mlp|lstm>__eta1_<a>_eta2_<b> (see baselines/failurespot.py).
     our probes                 max-conformal
     STAC (original, single)    max-conformal. STAC accumulates non-negative per-step scores, so the maximum over steps is
                                the final value of the accumulated score.
@@ -33,7 +34,8 @@ PROTOCOL: dict[str, str] = {
     "safe_lstm": SAFE_BAND,
     "safe_mlp_pre": SAFE_BAND,
     "safe_lstm_pre": SAFE_BAND,
-    "failurespot": SAFE_BAND,
+    "failurespot_mlp": SAFE_BAND,
+    "failurespot_lstm": SAFE_BAND,
     "mahalanobis": SAFE_BAND,
     "euclidean": SAFE_BAND,
     "pca_kmeans": SAFE_BAND,
@@ -52,6 +54,8 @@ _SAFE_CONFIG = re.compile(r"^(safe_mlp|safe_lstm)(_pre)?__lr[0-9]e-[0-9]_reg[0-9
 
 # One configuration of STAC: stac__mmd<dimensions>_<step|cumsum> or stac_single__<step|cumsum> (see baselines/stac.py).
 _STAC_CONFIG = re.compile(r"^(stac__mmd[763]_|stac_single__)(step|cumsum)$")
+# One configuration of FailureSpot: failurespot_<mlp|lstm>__eta1_<a>_eta2_<b> with a, b in {0p25, 1, 4} (see baselines/failurespot.py).
+_FAILURESPOT_CONFIG = re.compile(r"^failurespot_(mlp|lstm)__eta1_(0p25|1|4)_eta2_(0p25|1|4)$")
 
 
 def calibrator_name(method: str) -> str:
@@ -60,10 +64,11 @@ def calibrator_name(method: str) -> str:
         return PROTOCOL[method]
     if _OURS.match(method):
         return MAX_CONFORMAL
-    if _DISTANCE_CONFIG.match(method) or _SAFE_CONFIG.match(method) or _STAC_CONFIG.match(method):
+    if any(pattern.match(method) for pattern in (_DISTANCE_CONFIG, _SAFE_CONFIG, _STAC_CONFIG, _FAILURESPOT_CONFIG)):
         return PROTOCOL[method.split("__")[0]]
     raise KeyError(f"unknown method {method!r}; known: {sorted(PROTOCOL)}, our probes <lstm|mlp>_<heads>__<variant>, "
-                   f"distance configurations <baseline>__<tag> and SAFE configurations <family>__lr<lr>_reg<lambda_reg>")
+                   f"distance configurations <baseline>__<tag>, SAFE configurations <family>__lr<lr>_reg<lambda_reg>, STAC and "
+                   f"FailureSpot configurations (see baselines/stac.py, baselines/failurespot.py)")
 
 
 def parse_probe_name(method: str) -> dict | None:

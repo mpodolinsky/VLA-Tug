@@ -11,7 +11,7 @@ from fp.data.labels import VARIANTS
 from fp.models.ours import all_configs
 
 
-@pytest.mark.parametrize("method", ["safe_mlp", "safe_lstm", "failurespot"])
+@pytest.mark.parametrize("method", ["safe_mlp", "safe_lstm", "failurespot_mlp", "failurespot_lstm"])
 def test_safe_models_and_failurespot_use_the_safe_band(method):
     assert calibrator_name(method) == SAFE_BAND
 

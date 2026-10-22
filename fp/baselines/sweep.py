@@ -31,7 +31,7 @@ from ..data.splits import Split
 from ..grid import DATASETS, split_priority
 from ..models.base import Scorer
 from ..results import code_version, free_gb, hardware_info, is_done, peak_rss_gb, reset_peak_rss, run_dir, run_header, write_run
-from . import actprobe, distance_grid, safe_grid, stac  # noqa: F401  (register the distance, SAFE, STAC and ActProbe families)
+from . import actprobe, distance_grid, failurespot, safe_grid, stac  # noqa: F401  (register the distance, SAFE, STAC, ActProbe and FailureSpot families)
 from .registry import Context, build
 
 

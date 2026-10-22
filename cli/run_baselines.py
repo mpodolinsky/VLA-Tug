@@ -5,7 +5,8 @@ Families: mahalanobis, euclidean, pca_kmeans (SAFE's 26 distance configurations;
 each, early stopping with patience 50) with safe_mlp_pre, safe_lstm_pre (the same trained on rollouts cut at the onset; not SAFE as published),
 and stac (6 configurations) and stac_single (2), which read the sampled action chunks of data/<dataset>/actions.npz (python -m cli.prepare_actions)
 and train nothing, and actprobe (one configuration), which trains a small network on them and needs data/<dataset>/task_embeddings.npz
-(python -m cli.embed_tasks). `python -m cli.evaluate` then evaluates them with the calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
+(python -m cli.embed_tasks), and failurespot_mlp, failurespot_lstm (nine configurations each: the paper's weak-supervision weights are not stated,
+so each pair is its own method), which train a detector in two stages on the pooled features and the action chunks. `python -m cli.evaluate` then evaluates them with the calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
 list: --worker 0/2, --worker 1/2.
 """
 

@@ -11,6 +11,8 @@ import numpy as np
 
 from ..baselines.distance import DistanceScorer
 from ..baselines.distance_grid import method_names
+from ..baselines.failurespot import FAMILIES as FAILURESPOT_FAMILIES
+from ..baselines.failurespot import method_names as failurespot_method_names
 from ..baselines.safe_grid import FAMILIES as SAFE_FAMILIES
 from ..baselines.safe_grid import method_names as safe_method_names
 from ..calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_name
@@ -144,6 +146,8 @@ def method_order(rows: list[dict], family: str) -> list[str]:
         return method_names(family)
     if family in SAFE_FAMILIES:
         return safe_method_names(family)
+    if family in FAILURESPOT_FAMILIES:
+        return failurespot_method_names(FAILURESPOT_FAMILIES[family])
     return sorted({r["method"] for r in rows if r["family"] == family})
 
 
