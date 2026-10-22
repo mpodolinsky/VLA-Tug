@@ -22,6 +22,11 @@ class Scorer(ABC):
     def score(self, keys: list[str]) -> dict[str, np.ndarray]:
         """Per-step scores for every key, over the full rollout (no cut)."""
 
+    def training_details(self) -> dict | None:
+        """How a trained scorer was fitted (learning curves, best epoch, stopping rule, hyperparameters), or None if it was not trained by
+        iteration. Merged into the history of its run, so every deviation from a reference recipe is recorded with the numbers."""
+        return None
+
     def score_with_extras(self, keys: list[str]) -> tuple[dict[str, np.ndarray], dict[str, dict[str, np.ndarray]]]:
         """The scores and, optionally, arrays files to store with the run (file name -> per-episode arrays), such as the distances a score
         is made of. The default has no extras."""

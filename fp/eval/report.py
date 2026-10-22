@@ -11,6 +11,8 @@ import numpy as np
 
 from ..baselines.distance import DistanceScorer
 from ..baselines.distance_grid import method_names
+from ..baselines.safe_grid import FAMILIES as SAFE_FAMILIES
+from ..baselines.safe_grid import method_names as safe_method_names
 from ..calibration.protocol import MAX_CONFORMAL, SAFE_BAND, calibrator_name
 from ..data.manifest import Episode
 from ..data.splits import Split
@@ -140,6 +142,8 @@ def method_order(rows: list[dict], family: str) -> list[str]:
     """The methods of a baseline family in the order ties are broken in: SAFE's grid order for the distance families, else sorted names."""
     if family in DistanceScorer.NAMES.values():
         return method_names(family)
+    if family in SAFE_FAMILIES:
+        return safe_method_names(family)
     return sorted({r["method"] for r in rows if r["family"] == family})
 
 
