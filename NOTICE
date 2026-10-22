@@ -7,5 +7,11 @@ SAFE (Gu et al., NeurIPS 2025, arXiv 2506.09937; https://github.com/vla-safe/SAF
                                  failure_prob/model/embed.py; the fitting and scoring logic follows EmbedModel in the same file.
     fp/calibration/safe_band.py  port of the one-sided functional conformal band in
                                  failure_prob/utils/conformal/functional_predictor.py.
+    fp/models/safe.py            SafeMLP and SafeLSTM follow IndepModel (failure_prob/model/indep.py) and LstmModel
+                                 (failure_prob/model/lstm.py) in their default configuration; parameter names are SAFE's.
+    fp/train/safe.py             the losses, class weights and L2 penalty follow forward_compute_loss in indep.py and lstm.py,
+                                 aggregate_monitor_loss in failure_prob/model/utils.py, compute_regularization_loss in
+                                 failure_prob/model/base.py and RolloutDataset in failure_prob/data/utils.py.
+    fp/baselines/safe_grid.py    the learning-rate and lambda_reg grids are those of scripts/batch_training/submit_pi0fast_libero.bash.
 
 The SAFE repository does not state a licence.

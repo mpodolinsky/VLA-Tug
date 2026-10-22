@@ -31,11 +31,13 @@ class Batch:
     mode: torch.Tensor  # (B, T) int64, the episode's mode on steps with y == 1 of a failed episode, -1 elsewhere
 
 
-def make_item(episode: Episode, x: torch.Tensor, phrase_ids: np.ndarray, mode: int | None, variant: str, window: int) -> Item:
-    """``x`` and ``phrase_ids`` cover all steps of the episode; the item keeps the steps the label variant keeps (``x`` is not copied)."""
+def make_item(episode: Episode, x: torch.Tensor, phrase_ids: np.ndarray | None, mode: int | None, variant: str, window: int) -> Item:
+    """``x`` and ``phrase_ids`` cover all steps of the episode; the item keeps the steps the label variant keeps (``x`` is not copied).
+    ``phrase_ids`` may be None for a model that has no semantic target: every step then has no phrase."""
     labels = build_labels(variant, episode.n_steps, episode.onset, window)
     keep = labels.n
-    return Item(x[:keep], torch.from_numpy(labels.y), torch.from_numpy(phrase_ids[:keep].astype(np.int64)), -1 if mode is None else int(mode))
+    phrase = np.full(keep, -1, dtype=np.int64) if phrase_ids is None else phrase_ids[:keep].astype(np.int64)
+    return Item(x[:keep], torch.from_numpy(labels.y), torch.from_numpy(phrase), -1 if mode is None else int(mode))
 
 
 def collate(items: list[Item], device: str | torch.device = "cpu") -> Batch:

@@ -1,7 +1,8 @@
 """python -m cli.run_baselines [--families ...] [--datasets ...] [--splits ...] [--methods ...] [--worker I/N] [--dry-run]
 
-Run baseline families (the three embedding-distance baselines with SAFE's 26 configurations, so far) on every split of every dataset and
-write each run under results/<dataset>/<split>/<method>/, next to the probes' runs. `python -m cli.evaluate` then evaluates them with the
+Run baseline families on every split of every dataset and write each run under results/<dataset>/<split>/<method>/, next to the probes' runs.
+Families: mahalanobis, euclidean, pca_kmeans (SAFE's 26 distance configurations; the default), and safe_mlp, safe_lstm (SAFE's 12 configurations
+each, early stopping with patience 50) with safe_mlp_pre, safe_lstm_pre (the same trained on rollouts cut at the onset; not SAFE as published). `python -m cli.evaluate` then evaluates them with the
 calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
 list: --worker 0/2, --worker 1/2.
 """

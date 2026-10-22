@@ -1,6 +1,8 @@
 """Which calibrator each method gets in the main results. The single place that says so.
 
-    SAFE-MLP, SAFE-LSTM        SAFE functional band (their own)
+    SAFE-MLP, SAFE-LSTM        SAFE functional band (their own). All 12 configurations of each, named
+                               <family>__lr<lr>_reg<lambda_reg> (see baselines/safe_grid.py), get it; so do the same models trained on
+                               rollouts cut at the onset (families safe_mlp_pre, safe_lstm_pre), which are still SAFE models.
     FailureSpot                SAFE-style band
     our probes                 max-conformal
     STAC (original, single)    max-conformal. STAC accumulates non-negative per-step scores, so the maximum over steps is
@@ -29,6 +31,8 @@ MAX_CONFORMAL = "max_conformal"
 PROTOCOL: dict[str, str] = {
     "safe_mlp": SAFE_BAND,
     "safe_lstm": SAFE_BAND,
+    "safe_mlp_pre": SAFE_BAND,
+    "safe_lstm_pre": SAFE_BAND,
     "failurespot": SAFE_BAND,
     "mahalanobis": SAFE_BAND,
     "euclidean": SAFE_BAND,
@@ -42,6 +46,8 @@ PROTOCOL: dict[str, str] = {
 _OURS = re.compile(rf"^(lstm|mlp)(_mha)?_(plain|modes|clip|modes_clip)__({'|'.join(VARIANTS)})$")
 # One configuration of an embedding-distance baseline: <baseline>__<tag>, e.g. euclidean__k10_cumsum (see baselines/distance.py).
 _DISTANCE_CONFIG = re.compile(r"^(mahalanobis|euclidean|pca_kmeans)__[a-z0-9_]+$")
+# One configuration of SAFE-MLP / SAFE-LSTM: <family>__lr<learning rate>_reg<lambda_reg>, e.g. safe_lstm__lr3e-4_reg1e-2 (see baselines/safe_grid.py).
+_SAFE_CONFIG = re.compile(r"^(safe_mlp|safe_lstm)(_pre)?__lr[0-9]e-[0-9]_reg[0-9]e-[0-9]$")
 
 
 def calibrator_name(method: str) -> str:
@@ -50,10 +56,10 @@ def calibrator_name(method: str) -> str:
         return PROTOCOL[method]
     if _OURS.match(method):
         return MAX_CONFORMAL
-    if _DISTANCE_CONFIG.match(method):
+    if _DISTANCE_CONFIG.match(method) or _SAFE_CONFIG.match(method):
         return PROTOCOL[method.split("__")[0]]
-    raise KeyError(f"unknown method {method!r}; known: {sorted(PROTOCOL)}, our probes <lstm|mlp>_<heads>__<variant> "
-                   f"and distance configurations <baseline>__<tag>")
+    raise KeyError(f"unknown method {method!r}; known: {sorted(PROTOCOL)}, our probes <lstm|mlp>_<heads>__<variant>, "
+                   f"distance configurations <baseline>__<tag> and SAFE configurations <family>__lr<lr>_reg<lambda_reg>")
 
 
 def parse_probe_name(method: str) -> dict | None:
