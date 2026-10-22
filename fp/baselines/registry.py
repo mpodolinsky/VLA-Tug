@@ -25,6 +25,7 @@ class Context:
     inputs: Inputs
     features: Mapping[str, np.ndarray]  # RAW pooled features (T, 6144) float32 of every episode, as the SAFE baselines use them
     device: str = "cpu"
+    actions: Mapping[str, np.ndarray] | None = None  # the sampled action chunks (T, K, H, 7) of every episode, for the action-based baselines
 
 
 FAMILIES: dict[str, Callable[[Context, Split], list[Scorer]]] = {}

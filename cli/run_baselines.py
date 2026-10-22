@@ -2,8 +2,9 @@
 
 Run baseline families on every split of every dataset and write each run under results/<dataset>/<split>/<method>/, next to the probes' runs.
 Families: mahalanobis, euclidean, pca_kmeans (SAFE's 26 distance configurations; the default), and safe_mlp, safe_lstm (SAFE's 12 configurations
-each, early stopping with patience 50) with safe_mlp_pre, safe_lstm_pre (the same trained on rollouts cut at the onset; not SAFE as published). `python -m cli.evaluate` then evaluates them with the
-calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
+each, early stopping with patience 50) with safe_mlp_pre, safe_lstm_pre (the same trained on rollouts cut at the onset; not SAFE as published),
+and stac (6 configurations) and stac_single (2), which read the sampled action chunks of data/<dataset>/actions.npz (python -m cli.prepare_actions)
+and train nothing. `python -m cli.evaluate` then evaluates them with the calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
 list: --worker 0/2, --worker 1/2.
 """
 
@@ -16,7 +17,7 @@ from pathlib import Path
 import torch
 
 from fp.baselines.registry import FAMILIES, Context
-from fp.baselines.sweep import LazyFeatures, Settings, baseline_units, run_unit
+from fp.baselines.sweep import LazyActions, LazyFeatures, Settings, baseline_units, run_unit
 from fp.config import RESULTS
 from fp.data.features import feature_lengths
 from fp.data.inputs import load_inputs
@@ -67,7 +68,9 @@ def main() -> None:
 
     if args.dry_run:
         for i, u in enumerate(units):
-            built = [s.name for s in FAMILIES[u.family](Context(inputs[u.dataset], {}), inputs[u.dataset].splits[u.split])]
+            keys = list(inputs[u.dataset].episodes)  # (nothing is loaded: the lazy mappings read only when asked for a value)
+            context = Context(inputs[u.dataset], LazyFeatures(u.dataset, keys), actions=LazyActions(u.dataset, keys))
+            built = [s.name for s in FAMILIES[u.family](context, inputs[u.dataset].splits[u.split])]
             methods = [m for m in built if not args.methods or m in args.methods]
             done = sum(is_done(run_dir(u.dataset, u.split, m, args.out)) for m in methods)
             print(f"{i:3d}  {u.dataset:15s} {u.split:28s} {u.family:12s} {done}/{len(methods)} runs done")
@@ -89,14 +92,15 @@ def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     settings = Settings(args.out, min_free_gb=args.min_free_gb)
     log(f"worker {index}/{count}: {len(units)} units on {device}, writing to {args.out}")
-    started, written, features, current = time.time(), 0, None, None
+    started, written, loaded, current = time.time(), 0, [], None
     for done, u in enumerate(units, 1):
-        if u.dataset != current:  # a dataset's units are adjacent: drop the previous dataset's features
-            if features is not None:
-                features.release()
+        if u.dataset != current:  # a dataset's units are adjacent: drop the previous dataset's features and action chunks
+            for lazy in loaded:
+                lazy.release()
             current = u.dataset
-            features = LazyFeatures(u.dataset, list(inputs[u.dataset].episodes))
-        written += run_unit(u, Context(inputs[u.dataset], features, device), settings, log, args.methods)
+            keys = list(inputs[u.dataset].episodes)
+            loaded = [LazyFeatures(u.dataset, keys), LazyActions(u.dataset, keys)]
+        written += run_unit(u, Context(inputs[u.dataset], loaded[0], device, loaded[1]), settings, log, args.methods)
         per_unit = (time.time() - started) / done
         log(f"unit {done}/{len(units)} done ({written} runs written); {per_unit / 60:.1f} min per unit on average, "
             f"about {per_unit * (len(units) - done) / 3600:.1f} h left for this worker")

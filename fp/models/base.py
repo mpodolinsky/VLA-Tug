@@ -13,6 +13,7 @@ import numpy as np
 class Scorer(ABC):
     name: str
     saves_weights = False  # True for a scorer with learned weights: the baseline driver then writes ``save()`` into the run
+    input_kind = "raw"  # what the scorer reads, recorded in the history as ``features``: the raw pooled features unless it says otherwise
 
     @abstractmethod
     def fit(self, train_keys: list[str], val_keys: list[str]) -> None:

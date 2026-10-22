@@ -50,13 +50,17 @@ _DISTANCE_CONFIG = re.compile(r"^(mahalanobis|euclidean|pca_kmeans)__[a-z0-9_]+$
 _SAFE_CONFIG = re.compile(r"^(safe_mlp|safe_lstm)(_pre)?__lr[0-9]e-[0-9]_reg[0-9]e-[0-9]$")
 
 
+# One configuration of STAC: stac__mmd<dimensions>_<step|cumsum> or stac_single__<step|cumsum> (see baselines/stac.py).
+_STAC_CONFIG = re.compile(r"^(stac__mmd[763]_|stac_single__)(step|cumsum)$")
+
+
 def calibrator_name(method: str) -> str:
     """'safe_band' or 'max_conformal' for the method; KeyError for an unknown method."""
     if method in PROTOCOL:
         return PROTOCOL[method]
     if _OURS.match(method):
         return MAX_CONFORMAL
-    if _DISTANCE_CONFIG.match(method) or _SAFE_CONFIG.match(method):
+    if _DISTANCE_CONFIG.match(method) or _SAFE_CONFIG.match(method) or _STAC_CONFIG.match(method):
         return PROTOCOL[method.split("__")[0]]
     raise KeyError(f"unknown method {method!r}; known: {sorted(PROTOCOL)}, our probes <lstm|mlp>_<heads>__<variant>, "
                    f"distance configurations <baseline>__<tag> and SAFE configurations <family>__lr<lr>_reg<lambda_reg>")

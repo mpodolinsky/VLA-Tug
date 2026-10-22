@@ -24,13 +24,14 @@ from typing import Callable, Iterator, Mapping
 import numpy as np
 import torch
 
+from ..data.actions import load_actions
 from ..data.features import load_features
 from ..data.inputs import Inputs
 from ..data.splits import Split
 from ..grid import DATASETS, split_priority
 from ..models.base import Scorer
 from ..results import code_version, free_gb, hardware_info, is_done, peak_rss_gb, reset_peak_rss, run_dir, run_header, write_run
-from . import distance_grid, safe_grid  # noqa: F401  (register the distance and the SAFE families)
+from . import distance_grid, safe_grid, stac  # noqa: F401  (register the distance, SAFE and STAC families)
 from .registry import Context, build
 
 
@@ -60,9 +61,12 @@ class LazyFeatures(Mapping):
     def __init__(self, dataset: str, keys: list[str]):
         self.dataset, self.keys, self._data = dataset, keys, None
 
+    def _load(self) -> dict[str, np.ndarray]:
+        return load_features(self.dataset, self.keys)
+
     def __getitem__(self, key: str) -> np.ndarray:
         if self._data is None:
-            self._data = load_features(self.dataset, self.keys)
+            self._data = self._load()
         return self._data[key]
 
     def __iter__(self) -> Iterator[str]:
@@ -73,6 +77,13 @@ class LazyFeatures(Mapping):
 
     def release(self) -> None:
         self._data = None
+
+
+class LazyActions(LazyFeatures):
+    """The sampled action chunks of a dataset (T, K, H, 7), read from disk the first time one is asked for."""
+
+    def _load(self) -> dict[str, np.ndarray]:
+        return load_actions(self.dataset, self.keys)
 
 
 def run_scorer(scorer: Scorer, family: str, split: Split, inputs: Inputs, device: str) -> tuple[dict[str, np.ndarray], dict, dict]:
@@ -91,7 +102,7 @@ def run_scorer(scorer: Scorer, family: str, split: Split, inputs: Inputs, device
         raise ValueError(f"{scorer.name} produced non-finite scores on {split.name}")
     steps = sum(len(s) for s in scores.values())
     state = scorer.state_bytes()
-    info = {**run_header(inputs.dataset, split, scorer.name, inputs.window, device, time.time() - start), "family": family, "features": "raw",
+    info = {**run_header(inputs.dataset, split, scorer.name, inputs.window, device, time.time() - start), "family": family, "features": scorer.input_kind,
             "config": getattr(scorer, "config", {}), **(scorer.training_details() or {}),
             "fit_seconds": round(fit_seconds, 1), "score_seconds": round(score_seconds, 1),
             "scored_steps": steps, "score_ms_per_step": round(1000 * score_seconds / steps, 4),
