@@ -4,7 +4,8 @@ Run baseline families on every split of every dataset and write each run under r
 Families: mahalanobis, euclidean, pca_kmeans (SAFE's 26 distance configurations; the default), and safe_mlp, safe_lstm (SAFE's 12 configurations
 each, early stopping with patience 50) with safe_mlp_pre, safe_lstm_pre (the same trained on rollouts cut at the onset; not SAFE as published),
 and stac (6 configurations) and stac_single (2), which read the sampled action chunks of data/<dataset>/actions.npz (python -m cli.prepare_actions)
-and train nothing. `python -m cli.evaluate` then evaluates them with the calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
+and train nothing, and actprobe (one configuration), which trains a small network on them and needs data/<dataset>/task_embeddings.npz
+(python -m cli.embed_tasks). `python -m cli.evaluate` then evaluates them with the calibrator the protocol gives them. Runs that exist are skipped, so the command can be repeated to resume; several workers can share the
 list: --worker 0/2, --worker 1/2.
 """
 

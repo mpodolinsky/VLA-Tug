@@ -51,6 +51,7 @@ On a machine with unrelated pytest plugins installed system-wide, run `PYTEST_DI
 - [`docs/CALIBRATION.md`](docs/CALIBRATION.md): the three calibrators (SAFE band, max-conformal, Learn-then-Test), their guarantees, and which method uses which.
 - [`docs/SPLITS.md`](docs/SPLITS.md): how episodes are split into train, validation, calibration, held-out and unseen sets.
 - [`docs/DISTANCE_BASELINES.md`](docs/DISTANCE_BASELINES.md): the embedding-distance baselines taken from SAFE and how their configuration is selected.
+- [`docs/ACTION_BASELINES.md`](docs/ACTION_BASELINES.md): STAC (eight configurations) and ActProbe, which read the sampled action chunks; decisions, deviations and what the checkpoint selection does.
 
 ## Licences
 

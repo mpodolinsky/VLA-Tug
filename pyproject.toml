@@ -15,7 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
-targets = ["transformers"]  # only to rebuild targets.npz (CLIP text embeddings)
+targets = ["transformers"]  # only to rebuild targets.npz (CLIP text embeddings) and task_embeddings.npz (Qwen3 embeddings)
 
 [tool.setuptools.packages.find]
 include = ["fp*"]

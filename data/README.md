@@ -13,6 +13,9 @@ Local data, ignored by git. One folder per dataset (`libero10_groot`, `libero10_
   actions.npz    the action chunks the policy sampled at every call: one float32 array (steps, 10, H, 7) per episode, keyed by
                  the manifest `dir` (H = 16 for GR00T, 10 for pi0.5; 7 = position, rotation, gripper); sample 0 is the executed chunk.
                  The input of the action-based baselines (STAC, ActProbe, FailureSpot); format in fp/data/actions.py
+  task_embeddings.npz
+                 one float32 vector (1024,) per task, the language conditioning of ActProbe, and `_source` (where the vectors come
+                 from: ActProbe's shipped LIBERO-10 vectors, or Qwen3-Embedding-0.6B); format in fp/data/task_embeddings.py
 ```
 
 `python -m cli.download <dataset>` fetches `manifest.csv`, `splits/` (unchanged), the pooled features and the targets, which the Hub datasets hold as `pooled/features.npz` and `pooled/targets.npz`. `features.npz` can also be produced from the raw rollouts of the Hub datasets:
@@ -27,6 +30,13 @@ Each modality is averaged over its tokens (the language tokens over the unpadded
 
 ```
 python -m cli.prepare_actions <dataset> <folder holding the raw rollouts, one <dir>/rollout.npz per episode>
+```
+
+`task_embeddings.npz` holds the vectors ActProbe starts its LSTM from. LIBERO-10 uses the vectors ActProbe ships (Qwen3-Embedding-0.6B was tried and does not reproduce them: cosine 0.6 to 0.75); LIBERO-X, which ActProbe never ran, uses Qwen3-Embedding-0.6B (last token, L2-normalised; needs `pip install -e ".[targets]"` and the model weights). Each dataset is trained separately, so the two sources never meet in one model:
+
+```
+python -m cli.embed_tasks libero10_groot --source shipped --shipped-dir <ActProbe's benchmarks/pi0_libero/data>
+python -m cli.embed_tasks liberox_groot --source qwen3
 ```
 
 `targets.npz` is built from the `labels.json` / `labels.npz` of each episode (same folder layout as above; needs `pip install -e ".[targets]"` for the CLIP text encoder):
