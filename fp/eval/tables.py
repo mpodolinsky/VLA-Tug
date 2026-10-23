@@ -196,3 +196,93 @@ def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:
                 record.update({f"{name} {s} {e}": None if v is None else round(v, 3) for (s, e), v in zip(columns(settings), values)})
         out.append(record)
     return out
+
+
+# ---------------------------------------------------------------- the LTT against max-conformal table
+LTT_CAPTION = (r"Learn-then-Test (LTT) against max-conformal calibration of the same probe at the same false-positive-rate (FPR) target, over RUNS "
+               r"runs (one per split). LTT (STARTS fixed-sequence walks, $\delta = DELTA$) certifies the FPR target together with the TPR-early target "
+               r"of the second column, the highest one that at least half of the runs certify; it can abstain, so its percentages are over the runs it "
+               r"certifies (column Runs). Max-conformal always returns a threshold and has no TPR-early target. Holds: the share of runs in which the "
+               r"target is met on the held-out episodes of the tasks the calibration used (seen) or on held-out tasks (unseen); FPR and TPR early "
+               r"(in \%): the mean over the runs and, after $\pm$, the standard deviation. Shaded rows are LTT. The guarantee covers the seen "
+               r"episodes only, and the TPR-early targets were chosen from these runs.")
+
+
+@dataclass(frozen=True)
+class LttCells:
+    """One evaluation set of one row of the LTT table: the share of runs (%) in which each target holds, and the mean and standard deviation over
+    the runs of the FPR and of the TPR early (%)."""
+    fpr_holds: float
+    tpr_holds: float | None  # None for a method without a TPR-early target
+    fpr: tuple[float, float]
+    tpr_early: tuple[float, float]
+
+
+@dataclass(frozen=True)
+class LttRow:
+    fpr_target: float  # a fraction
+    tpr_target: float | None  # a fraction; None for max-conformal, and for LTT when no TPR-early target is certified by enough runs
+    method: str
+    highlight: bool  # shaded: the method the table argues for
+    n_certified: int  # runs with a threshold
+    n_runs: int
+    seen: LttCells | None  # None when no run has a threshold
+    unseen: LttCells | None
+
+
+def percent(value: float) -> str:
+    return rf"{value:.0f}\%"
+
+
+def ltt_cells(cells: LttCells | None) -> list[str]:
+    """FPR holds, TPR holds, FPR, TPR early of one set."""
+    if cells is None:
+        return [MISSING] * 4
+    spread = lambda mean_std: number(mean_std[0], 1) + rf"{{\scriptsize$\pm${mean_std[1]:.1f}}}"
+    return [percent(cells.fpr_holds), MISSING if cells.tpr_holds is None else percent(cells.tpr_holds), spread(cells.fpr), spread(cells.tpr_early)]
+
+
+def ltt_tabular(rows: list[LttRow]) -> str:
+    """The bare ``tabular``: both targets first, then the method and its runs, then the seen and the unseen columns; one block per FPR target."""
+    lines = [r"\begin{tabular}{lll" + "r" * 9 + "}", r"\toprule",
+             r" & & & & \multicolumn{4}{c}{Seen tasks} & \multicolumn{4}{c}{Unseen tasks} \\",
+             r"\cmidrule(lr){5-8}\cmidrule(lr){9-12}",
+             r"FPR target & TPR-early target & Method & Runs & " + " & ".join(["FPR holds", "TPR holds", "FPR", "TPR early"] * 2) + r" \\", r"\midrule"]
+    previous = None
+    for r in rows:
+        if r.fpr_target != previous and previous is not None:
+            lines.append(r"\midrule")
+        first = percent(100 * r.fpr_target) if r.fpr_target != previous else ""
+        previous = r.fpr_target
+        target = MISSING if r.tpr_target is None else percent(100 * r.tpr_target)
+        runs = percent(100 * r.n_certified / r.n_runs) + f" ({r.n_certified}/{r.n_runs})"
+        cells = ltt_cells(r.seen) + ltt_cells(r.unseen)
+        lines.append((r"\rowcolor{gray!15} " if r.highlight else "") + " & ".join([first, target, escape(r.method), runs] + cells) + r" \\")
+    return "\n".join(lines + [r"\bottomrule", r"\end{tabular}", ""])
+
+
+def ltt_caption(rows: list[LttRow], delta: float, n_starts: int) -> str:
+    return LTT_CAPTION.replace("RUNS", str(max(r.n_runs for r in rows))).replace("STARTS", str(n_starts)).replace("DELTA", f"{delta:g}")
+
+
+def ltt_latex_table(rows: list[LttRow], delta: float, n_starts: int, caption: str | None = None, label: str = "tab:ltt",
+                    source: str = "python -m cli.ltt_table") -> str:
+    """The LTT table as a ``table*`` float (see ``latex_table``). Needs booktabs, graphicx and xcolor with the table option."""
+    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or ltt_caption(rows, delta, n_starts)}}}", rf"\label{{{label}}}",
+                      r"\setlength{\tabcolsep}{4pt}", r"\resizebox{\textwidth}{!}{%", ltt_tabular(rows).rstrip("\n") + "%", "}", r"\end{table*}", ""])
+
+
+def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:
+    """One dict per row: the targets (%), the method, the runs, and for the seen and the unseen set every column of the table."""
+    out = []
+    for r in rows:
+        record = {"fpr target": round(100 * r.fpr_target, 3), "tpr-early target": None if r.tpr_target is None else round(100 * r.tpr_target, 3),
+                  "method": r.method, "runs certified": r.n_certified, "runs": r.n_runs}
+        for name, cells in (("seen", r.seen), ("unseen", r.unseen)):
+            if cells is not None:
+                record.update({f"{name} fpr holds": round(cells.fpr_holds, 3), f"{name} tpr holds": None if cells.tpr_holds is None else round(cells.tpr_holds, 3),
+                               f"{name} fpr mean": round(cells.fpr[0], 3), f"{name} fpr std": round(cells.fpr[1], 3),
+                               f"{name} tpr early mean": round(cells.tpr_early[0], 3), f"{name} tpr early std": round(cells.tpr_early[1], 3)})
+        out.append(record)
+    return out
