@@ -57,9 +57,11 @@ LIBEROX_KINDS = ("task", "signature", "skill")
 
 def group_of(split_name: str) -> str:
     """The held-out set a split belongs to: 'task', 'signature' or 'skill' for LIBERO-X splits (named task_seed0,
-    signature_seed1, skill_<name>), 'full' for the real robot's splits with nothing held out (full_seed0), 'all' for every other split
-    (the LIBERO-10 and real-robot leave-one-task-out runs are pooled)."""
+    signature_seed1, skill_<name>), 'full' for the real robot's splits with nothing held out (full_seed0), 'loto_seeds' for its extra leave-one-task-out
+    seeds (lotoseed1_<task>), 'all' for every other split (the LIBERO-10 and real-robot seed-0 leave-one-task-out runs are pooled)."""
     first = split_name.split("_")[0]
+    if first.startswith("lotoseed"):  # the extra seeds of the real robot's leave-one-task-out runs, kept apart from the pooled 'all' group
+        return "loto_seeds"
     return first if first in LIBEROX_KINDS + ("full",) else "all"
 
 

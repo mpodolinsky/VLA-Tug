@@ -88,7 +88,9 @@ CAPTION = (r"Early failure detection on seen and unseen tasks. Each cell is the 
            r"in every setting, trained with the pre-onset trajectory (\texttt{onset\_pre}) or the whole failed trajectory (\texttt{onset\_traj}) "
            r"as the positive label; SAFE-LSTM and SAFE-MLP use one configuration on the three LIBERO-X splits; every other method uses the "
            r"configuration with the best validation area. Cost, measured on LIBERO-X (lower is better): seconds to fit, megabytes kept to score "
-           r"a new episode, milliseconds per policy step. Best in bold, second best in italics.")
+           r"a new episode, milliseconds per policy step. Real robot: GR00T on eight tasks, one task held out at a time, the mean over five seeds "
+           r"(40 splits; the configurations are those chosen on seed 0); STAC, ActProbe and FailureSpot need the planned action chunks, which "
+           r"were not saved there. Best in bold, second best in italics.")
 STD_CAPTION = r" Values after $\pm$ are the standard deviation over the splits."
 
 

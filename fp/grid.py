@@ -30,6 +30,9 @@ class Unit:
 
 def split_priority(name: str) -> tuple[int, int, str]:
     """Seed first, then split kind (task / paper / loto, signature, skill); the skill and loto folds all have seed 0."""
+    extra = re.fullmatch(r"lotoseed(\d+)", name.split("_")[0])
+    if extra:  # an extra seed of the leave-one-task-out runs: lotoseed<seed>_<task>
+        return (int(extra.group(1)), KIND_RANK["loto"], name)
     seed = re.search(r"_seed(\d+)$", name)
     return (int(seed.group(1)) if seed else 0, KIND_RANK[name.split("_")[0]], name)
 

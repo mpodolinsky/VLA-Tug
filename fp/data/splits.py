@@ -20,6 +20,7 @@ N_UNSEEN_TASKS = 3  # LIBERO-10: tasks held out per seed
 PAPER_SEEDS = (0, 1, 2)  # LIBERO-10: three random held-out task triples
 LIBEROX_SEEDS = (0, 1, 2)  # LIBERO-X task and signature splits; the skill folds use seed 0
 FULL_SEEDS = (0, 1, 2)  # real robot: nothing held out, three shuffles of all tasks
+LOTO_EXTRA_SEEDS = (1, 2, 3, 4)  # real robot: the leave-one-task-out runs again (seed 0 is the loto_<task> runs); the held-out task is the same, the seen episodes are shuffled differently
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,8 @@ def split_plan(dataset: str, tasks: list[str]) -> list[tuple[str, int, set[str]]
         plan += [(f"loto_{t}", 0, {t}) for t in sorted(set(tasks))]
     if "full" in spec.split_kinds:  # real robot: every task in training, no unseen set (for the model that is shared, not for a result on unseen tasks)
         plan += [(f"full_seed{s}", s, set()) for s in FULL_SEEDS]
+    if "lotoseeds" in spec.split_kinds:  # real robot: more seeds of the leave-one-task-out runs, named lotoseed<seed>_<task>
+        plan += [(f"lotoseed{s}_{t}", s, {t}) for s in LOTO_EXTRA_SEEDS for t in sorted(set(tasks))]
     return plan
 
 

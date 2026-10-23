@@ -49,7 +49,7 @@ REGISTRY: dict[str, DatasetSpec] = {
         DatasetSpec("liberox_groot", "groot", "liberox_level123", 8, 20.0, 6, True, ("task", "signature", "skill"), "podolinsky/gr00t-libero-x-features-v3"),
         # real robot, 8 tasks: about 50 Hz, 6 control steps per call, the 2.4 s window of the other GR00T datasets (20 calls); the saved plans hold only
         # the executed actions (the rest is NaN), so there are no action chunks; the data stays local
-        DatasetSpec("real8_groot", "groot", "real8", 6, 50.0, 20, False, ("loto", "full"), ""),
+        DatasetSpec("real8_groot", "groot", "real8", 6, 50.0, 20, False, ("loto", "full", "lotoseeds"), ""),
     )
 }
 

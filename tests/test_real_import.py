@@ -155,7 +155,7 @@ def test_label_problems_are_found_before_anything_is_written(source, data):
 def test_the_real_dataset_matches_the_two_point_four_second_window_of_the_other_groot_datasets():
     spec = config.get("real8_groot")
     assert spec.window_seconds == pytest.approx(2.4) and spec.window_steps == 20 and spec.replan_steps == 6 and not spec.has_actions
-    assert spec.split_kinds == ("loto", "full") and spec.hf_repo == "" and spec.policy == "groot"
+    assert spec.split_kinds == ("loto", "full", "lotoseeds") and spec.hf_repo == "" and spec.policy == "groot"
     assert config.get("liberox_groot").has_actions and config.get("libero10_pi05").has_actions
 
 
@@ -170,7 +170,22 @@ def test_leave_one_task_out_has_one_split_per_task_that_holds_that_task_out(sour
         assert len({k.split("/")[0] for k in s.train}) == 2
         assert split_group(s) == "all"  # the runs are pooled when a configuration is selected, like LIBERO-10's
     assert [split_priority(s.name) for s in splits] == [(0, 0, "loto_basket"), (0, 0, "loto_closer_drawer"), (0, 0, "loto_tomato")]
-    assert [n for n, _, _ in split_plan("real8_groot", TASKS)] == ["loto_basket", "loto_closer_drawer", "loto_tomato", "full_seed0", "full_seed1", "full_seed2"]
+    plan = [n for n, _, _ in split_plan("real8_groot", TASKS)]
+    assert plan[:6] == ["loto_basket", "loto_closer_drawer", "loto_tomato", "full_seed0", "full_seed1", "full_seed2"] and len(plan) == 6 + 4 * 3
+    assert plan[6:9] == ["lotoseed1_basket", "lotoseed1_closer_drawer", "lotoseed1_tomato"] and plan[-1] == "lotoseed4_tomato"
+
+
+def test_the_extra_seeds_repeat_the_leave_one_task_out_runs_with_other_shuffles_and_stay_out_of_the_pooled_group(source, data):
+    import_real("real8_groot", source[0], embed)
+    splits = {s.name: s for s in make_splits("real8_groot")}
+    for seed in (1, 2, 3, 4):
+        for task in TASKS:
+            s, base = splits[f"lotoseed{seed}_{task}"], splits[f"loto_{task}"]
+            assert s.seed == seed and s.unseen == base.unseen  # the same held-out task and episodes
+            assert {k.split("/")[0] for k in s.train + s.val + s.calibration + s.seen} == set(TASKS) - {task}
+            assert split_group(s) == "loto_seeds" and split_priority(s.name) == (seed, 0, s.name)
+    assert splits["lotoseed1_basket"].train != splits["loto_basket"].train and splits["lotoseed1_basket"].train != splits["lotoseed2_basket"].train  # other shuffles
+    assert split_group(splits["loto_basket"]) == "all" and split_group(splits["full_seed1"]) == "full"  # the seed-0 runs and the full splits keep their groups
 
 
 def test_the_full_splits_hold_nothing_out_use_every_task_in_training_and_are_their_own_group(source, data):

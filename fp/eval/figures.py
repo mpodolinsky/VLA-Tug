@@ -38,6 +38,7 @@ class Setting:
     label: str
     dataset: str
     group: str  # 'all' (LIBERO-10, real robot: every split of the dataset) or the kind of held-out split of LIBERO-X
+    also: tuple[str, ...] = ()  # more groups whose splits are averaged into the cells and curves; the choice of a configuration uses ``group`` only
 
 
 SETTINGS = (  # the order of the panels and of the table's columns
@@ -46,7 +47,8 @@ SETTINGS = (  # the order of the panels and of the table's columns
     Setting("LIBERO-X task", "liberox_groot", "task"),
     Setting("LIBERO-X signature", "liberox_groot", "signature"),
     Setting("LIBERO-X skill", "liberox_groot", "skill"),
-    Setting("Real robot", "real8_groot", "all"),  # leave one task out, 8 splits; no action-based baselines (no planned chunks)
+    Setting("Real robot", "real8_groot", "all", also=("loto_seeds",)),  # leave one task out: 8 tasks x 5 seeds (seed 0 is the group "all", seeds 1-4 "loto_seeds");
+    # the configurations are chosen on seed 0 and averaged over the 40 splits; no action-based baselines (no planned chunks)
 )
 
 
@@ -88,7 +90,8 @@ TABLE_LABELS = ("SAFE-LSTM", "SAFE-MLP", "STAC", "ActProbe", "FailureSpot", "Mah
 def require_runs(rows: list[dict], setting: Setting, method: str) -> str:
     """``method`` itself, after checking that it was evaluated on every split of the setting (ValueError otherwise)."""
     splits = splits_of(rows, setting)
-    have = {r["split"] for r in rows if (r["dataset"], r["group"], r["method"], r["eval_set"]) == (setting.dataset, setting.group, method, "val")}
+    groups = (setting.group, *setting.also)
+    have = {r["split"] for r in rows if r["dataset"] == setting.dataset and r["group"] in groups and r["method"] == method and r["eval_set"] == "val"}
     missing = [s for s in splits if s not in have]
     if not splits or missing:
         raise ValueError(f"{method} has no evaluated run on {missing or 'any split'} of {setting.dataset}/{setting.group}")
@@ -137,7 +140,8 @@ def choose_all(rows: list[dict], entries=ENTRIES, settings=SETTINGS) -> tuple[di
 
 
 def splits_of(rows: list[dict], setting: Setting) -> list[str]:
-    return sorted({r["split"] for r in rows if r["dataset"] == setting.dataset and r["group"] == setting.group})
+    groups = (setting.group, *setting.also)
+    return sorted({r["split"] for r in rows if r["dataset"] == setting.dataset and r["group"] in groups})
 
 
 @dataclass(frozen=True)
@@ -149,7 +153,9 @@ class Cell:
 
 def area_cell(rows: list[dict], setting: Setting, method: str, eval_set: str) -> Cell:
     """Mean and spread of the area of ``method`` over the setting's splits, with the calibrator the protocol gives it."""
-    areas = per_split_areas(rows, setting.dataset, setting.group, method, calibrator_name(method), eval_set)
+    areas = {}
+    for group in (setting.group, *setting.also):
+        areas.update(per_split_areas(rows, setting.dataset, group, method, calibrator_name(method), eval_set))
     values = np.array([a for a in areas.values() if not np.isnan(a)])
     if not len(values):
         raise ValueError(f"{method} has no area on {setting.label} ({eval_set})")
@@ -162,8 +168,11 @@ def mean_curve(rows: list[dict], setting: Setting, method: str, eval_set: str, m
     its last point; on-time TPR, which a looser threshold can lower, is neither flattened nor made monotone."""
     calibrator = calibrator_name(method)
     curves = []
+    evaluated = {r["split"] for r in rows if r["dataset"] == setting.dataset and r["method"] == method}
     for split in splits_of(rows, setting):
-        points = read_json(run_dir(setting.dataset, split, method, root) / f"curve_{calibrator}.json")["sets"][eval_set]
+        if split not in evaluated:  # a run that failed has no evaluation (Mahalanobis: a singular covariance): the mean is over the splits that have one, as in the cells
+            continue
+        points = read_json(run_dir(setting.dataset, split, method, root) / f"curve_{calibrator}.json")["sets"][eval_set]  # (a missing file of an evaluated run is an error)
         curves.append(curve_on_grid(np.array([p["fpr"] for p in points]), np.array([p[metric] for p in points]), GRID, running_max=metric == "tpr_early"))
     if not curves:
         raise ValueError(f"no runs for {setting.label}")

@@ -441,7 +441,7 @@ def test_the_command_prints_the_benchmark_commands_instead_of_writing_anything(r
 
 def test_the_real_robot_setting_is_last_pools_its_leave_one_task_out_splits_and_has_no_action_baselines(tmp_path):
     real = figures.SETTINGS[-1]
-    assert (real.label, real.dataset, real.group) == ("Real robot", "real8_groot", "all")
+    assert (real.label, real.dataset, real.group, real.also) == ("Real robot", "real8_groot", "all", ("loto_seeds",))
     root = tmp_path / "results"
     arch = figures.OURS_ARCHITECTURE
     safe = safe_method_names("safe_lstm")
@@ -457,3 +457,44 @@ def test_the_real_robot_setting_is_last_pools_its_leave_one_task_out_splits_and_
     for entry in ("STAC", "STAC-Single", "ActProbe", "FailureSpot"):
         assert ("Real robot", entry) not in chosen and any(line.startswith(f"Real robot / {entry}:") for line in skipped)
     assert figures.splits_of(rows, real) == ["loto_basket", "loto_tomato"] and figures.area_cell(rows, real, chosen[("Real robot", "SAFE-LSTM")], "unseen").n == 2
+
+
+def test_the_real_robot_cells_average_over_the_extra_seeds_while_the_configuration_is_chosen_on_seed_zero_only(tmp_path):
+    real = figures.SETTINGS[-1]
+    root = tmp_path / "results"
+    names = safe_method_names("safe_lstm")
+    for task in ("basket", "tomato"):
+        for i, name in enumerate(names):  # seed 0: configuration 7 is the best on validation
+            write_run(root, "real8_groot", f"loto_{task}", name, 80.0 if i == 7 else 5.0, calibrator="safe_band")
+        for seed in (1, 2):  # the extra seeds: only the chosen configuration was run (and configuration 3 would have been better there)
+            write_run(root, "real8_groot", f"lotoseed{seed}_{task}", names[7], 40.0 + seed, calibrator="safe_band")
+            write_run(root, "real8_groot", f"lotoseed{seed}_{task}", names[3], 90.0, calibrator="safe_band")
+        write_run(root, "real8_groot", f"loto_{task}", f"{figures.OURS_ARCHITECTURE}__onset_pre", 30.0)
+        for seed in (1, 2):
+            write_run(root, "real8_groot", f"lotoseed{seed}_{task}", f"{figures.OURS_ARCHITECTURE}__onset_pre", 30.0)
+    rows = collect_rows(root)
+    assert figures.splits_of(rows, real) == sorted([f"loto_{t}" for t in ("basket", "tomato")] + [f"lotoseed{s}_{t}" for s in (1, 2) for t in ("basket", "tomato")])
+    chosen, skipped = figures.choose_all(rows, settings=[real])
+    assert chosen[("Real robot", "SAFE-LSTM")] == names[7]  # chosen on the seed-0 splits only
+    cell = figures.area_cell(rows, real, names[7], "val")
+    assert cell.n == 6 and cell.mean == pytest.approx((2 * 80.0 + 2 * 41.0 + 2 * 42.0) / 6)  # the mean over the 6 splits that have it (2 tasks x seeds 0, 1, 2)
+    assert chosen[("Real robot", "Ours (onset_pre)")] == f"{figures.OURS_ARCHITECTURE}__onset_pre"
+    missing = tmp_path / "missing"
+    write_run(missing, "real8_groot", "loto_basket", f"{figures.OURS_ARCHITECTURE}__onset_pre", 30.0)
+    write_run(missing, "real8_groot", "lotoseed1_basket", "mlp_plain__onset_pre", 30.0)  # the fixed architecture is absent on an extra seed: reported
+    with pytest.raises(ValueError, match="lotoseed1_basket"):
+        figures.choose(collect_rows(missing), real, next(e for e in figures.ENTRIES if e.label == "Ours (onset_pre)"))
+
+
+def test_a_split_without_a_curve_file_is_left_out_of_the_mean_curve_like_it_is_left_out_of_the_cell(tmp_path):
+    real = figures.SETTINGS[-1]
+    root = tmp_path / "results"
+    method = "mahalanobis__cumsum"
+    write_run(root, "real8_groot", "loto_basket", method, 30.0, 1.0, calibrator="safe_band")
+    write_run(root, "real8_groot", "loto_tomato", method, 50.0, 0.5, calibrator="safe_band")
+    write_run(root, "real8_groot", "lotoseed1_basket", "lstm_plain__onset_pre", 10.0)  # this split exists, but this method has no run on it
+    rows = collect_rows(root)
+    assert "lotoseed1_basket" in figures.splits_of(rows, real)
+    both = figures.mean_curve(rows, real, method, "unseen", root=root)
+    one = figures.mean_curve(collect_rows(tmp_path / "results"), real, method, "unseen", root=root)
+    assert np.array_equal(both, one) and figures.area_cell(rows, real, method, "unseen").n == 2
