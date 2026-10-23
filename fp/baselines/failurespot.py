@@ -260,4 +260,4 @@ def _family(kind: str):
 
 FAMILIES = {f"failurespot_{kind}": kind for kind in KINDS}
 for _name, _kind in FAMILIES.items():
-    register(_name)(_family(_kind))
+    register(_name, needs_actions=True)(_family(_kind))

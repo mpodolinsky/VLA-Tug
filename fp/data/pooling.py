@@ -10,15 +10,13 @@ array (n_steps, 6144) per episode, keyed by the manifest ``dir`` and laid out as
 The backbone state features some rollouts also carry are not used.
 """
 
-import os
-import zipfile
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
-from numpy.lib import format as npy_format
 
 from ..config import FEATURE_DIM, get
+from .features import write_arrays
 from .manifest import load_manifest
 
 
@@ -62,16 +60,14 @@ def prepare_dataset(dataset: str, rollout_root: str | Path, workers: int = 4) ->
     if missing:
         raise FileNotFoundError(f"{len(missing)} rollouts not found under {rollout_root}, e.g. {missing[:2]}")
 
-    tmp = out.with_name(out.name + ".tmp")
     n_steps = {e.key: e.n_steps for e in episodes}
-    try:
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf, Pool(workers) as pool:
-            for key, x in pool.imap(_pool_one, jobs):  # in manifest order
-                if x.shape != (n_steps[key], FEATURE_DIM):
-                    raise ValueError(f"{key}: pooled shape {x.shape}, the manifest says {n_steps[key]} steps of {FEATURE_DIM}")
-                with zf.open(f"{key}.npy", "w", force_zip64=True) as f:
-                    npy_format.write_array(f, x, allow_pickle=False)
-        os.replace(tmp, out)
-    finally:
-        tmp.unlink(missing_ok=True)
+
+    def checked():
+        for key, x in pool.imap(_pool_one, jobs):  # in manifest order
+            if x.shape != (n_steps[key], FEATURE_DIM):
+                raise ValueError(f"{key}: pooled shape {x.shape}, the manifest says {n_steps[key]} steps of {FEATURE_DIM}")
+            yield key, x
+
+    with Pool(workers) as pool:
+        write_arrays(out, checked())
     return out

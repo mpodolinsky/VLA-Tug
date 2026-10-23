@@ -13,8 +13,8 @@ from .data.splits import make_splits
 from .models.ours import all_configs
 
 VARIANTS = ("onset_pre", "onset", "onset_post", "onset_traj")  # in priority order
-DATASETS = ("liberox_groot", "libero10_groot", "libero10_pi05")
-KIND_RANK = {"task": 0, "paper": 0, "signature": 1, "skill": 2}
+DATASETS = ("liberox_groot", "libero10_groot", "libero10_pi05", "real8_groot")
+KIND_RANK = {"task": 0, "paper": 0, "loto": 0, "full": 0, "signature": 1, "skill": 2}
 
 
 @dataclass(frozen=True)
@@ -29,7 +29,7 @@ class Unit:
 
 
 def split_priority(name: str) -> tuple[int, int, str]:
-    """Seed first, then split kind (task / paper, signature, skill); the skill folds all have seed 0."""
+    """Seed first, then split kind (task / paper / loto, signature, skill); the skill and loto folds all have seed 0."""
     seed = re.search(r"_seed(\d+)$", name)
     return (int(seed.group(1)) if seed else 0, KIND_RANK[name.split("_")[0]], name)
 

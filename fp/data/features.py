@@ -1,10 +1,28 @@
 """Load pooled features and standardise them with training-split statistics."""
 
+import os
 import zipfile
+from pathlib import Path
+from typing import Iterable
 
 import numpy as np
+from numpy.lib import format as npy_format
 
 from ..config import FEATURE_DIM, get
+
+
+def write_arrays(out: Path, items: Iterable[tuple[str, np.ndarray]]) -> None:
+    """Write ``items`` (episode key, array) to the .npz ``out`` one array at a time (no full copy in memory), to a temporary name that is renamed
+    once every item is in. ``items`` may be a generator that checks what it yields: an exception in it leaves ``out`` untouched."""
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+            for key, x in items:
+                with zf.open(f"{key}.npy", "w", force_zip64=True) as f:
+                    npy_format.write_array(f, x, allow_pickle=False)
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def feature_lengths(dataset: str) -> dict[str, int]:

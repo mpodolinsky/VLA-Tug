@@ -1,10 +1,10 @@
 """Train / val / calibration / seen-eval / unseen episode splits (pure logic).
 
 One algorithm for every dataset:
-  1. episodes of the held-out groups (tasks, signatures or skills) go to ``unseen``;
+  1. episodes of the held-out groups (tasks, signatures or skills) go to ``unseen`` (none held out: ``unseen`` is empty);
   2. the rest is split 65/15/20 into train / val / test, stratified by (outcome, condition);
   3. the test part is halved into ``calibration`` and ``seen`` with the same strata.
-``condition`` is the scene variant (LIBERO-10) or the level (LIBERO-X). Same seed, same split.
+``condition`` is the scene variant (LIBERO-10), the level (LIBERO-X) or the task (real robot). Same seed, same split.
 """
 
 import random
@@ -19,11 +19,12 @@ FRACTIONS = (("train", 0.65), ("val", 0.15), ("test", 0.20))
 N_UNSEEN_TASKS = 3  # LIBERO-10: tasks held out per seed
 PAPER_SEEDS = (0, 1, 2)  # LIBERO-10: three random held-out task triples
 LIBEROX_SEEDS = (0, 1, 2)  # LIBERO-X task and signature splits; the skill folds use seed 0
+FULL_SEEDS = (0, 1, 2)  # real robot: nothing held out, three shuffles of all tasks
 
 
 @dataclass(frozen=True)
 class Split:
-    name: str  # e.g. "paper_seed0", "skill_pick", "task_seed1"
+    name: str  # e.g. "paper_seed0", "skill_pick", "task_seed1", "loto_basket"
     train: list[str]
     val: list[str]
     calibration: list[str]  # first half of the seen-task test part (fits the calibrators)
@@ -69,7 +70,7 @@ def build_split(
 ) -> Split:
     unseen = [e for e in episodes if group_of(e) in unseen_groups]
     seen = [e for e in episodes if group_of(e) not in unseen_groups]
-    if not unseen:
+    if unseen_groups and not unseen:  # (no groups asked for is a split with nothing held out)
         raise ValueError(f"no episode belongs to the held-out groups {sorted(unseen_groups)}")
     parts = stratified_partition(seen, FRACTIONS, seed)
     test = [e for e in seen if e.key in set(parts["test"])]
@@ -113,12 +114,16 @@ def split_plan(dataset: str, tasks: list[str]) -> list[tuple[str, int, set[str]]
     if "skill" in spec.split_kinds:
         skills = sorted(p.name for p in (files / "leave_skill_out").iterdir() if p.is_dir())
         plan += [(f"skill_{k}", 0, read_unseen_tasks(files / "leave_skill_out" / k / "test.txt")) for k in skills]
+    if "loto" in spec.split_kinds:  # real robot: leave one task out, every task once
+        plan += [(f"loto_{t}", 0, {t}) for t in sorted(set(tasks))]
+    if "full" in spec.split_kinds:  # real robot: every task in training, no unseen set (for the model that is shared, not for a result on unseen tasks)
+        plan += [(f"full_seed{s}", s, set()) for s in FULL_SEEDS]
     return plan
 
 
 def make_splits(dataset: str) -> list[Split]:
     """Every run of the dataset (LIBERO-10: 3 paper seeds; LIBERO-X: 3 task seeds, 3 signature seeds and one fold
-    per skill), from data/<dataset>/manifest.csv and, for LIBERO-X, data/<dataset>/splits/."""
+    per skill; real robot: one fold per task and three splits with nothing held out), from data/<dataset>/manifest.csv and, for LIBERO-X, data/<dataset>/splits/."""
     episodes = load_manifest(dataset)
     tasks = {e.task for e in episodes}
     splits = []

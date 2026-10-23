@@ -37,7 +37,7 @@ COST_FIELDS = ("fit_seconds", "state_mb", "score_ms_per_step")
 class Setting:
     label: str
     dataset: str
-    group: str  # 'all' (LIBERO-10) or the kind of held-out split of LIBERO-X
+    group: str  # 'all' (LIBERO-10, real robot: every split of the dataset) or the kind of held-out split of LIBERO-X
 
 
 SETTINGS = (  # the order of the panels and of the table's columns
@@ -46,6 +46,7 @@ SETTINGS = (  # the order of the panels and of the table's columns
     Setting("LIBERO-X task", "liberox_groot", "task"),
     Setting("LIBERO-X signature", "liberox_groot", "signature"),
     Setting("LIBERO-X skill", "liberox_groot", "skill"),
+    Setting("Real robot", "real8_groot", "all"),  # leave one task out, 8 splits; no action-based baselines (no planned chunks)
 )
 
 

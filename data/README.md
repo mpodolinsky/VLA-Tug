@@ -44,3 +44,17 @@ python -m cli.embed_tasks liberox_groot --source qwen3
 ```
 python -m cli.targets <dataset> <folder holding the labels, one <dir>/labels.json per episode>
 ```
+
+## The real-robot dataset
+
+`real8_groot` is GR00T on a real robot, eight tasks (basket, blocks, closer_drawer, eggplant, mushroom, pineapple_out_of_drawer, push_pineapple, tomato), 399 episodes (145 successes, 254 failures), about 50 Hz and 6 control steps per policy call. It is not on the Hub. Its folder holds `manifest.csv`, `features.npz` and `targets.npz` in the formats above, built from the collection folder by
+
+```
+python -m cli.import_real real8_groot <collection folder>      # needs `transformers` and the CLIP weights, for the phrase embeddings
+```
+
+- The pooled features are taken from the cache made when the rollouts were collected: the token embeddings were not kept (a `rollout.npz` holds only the actions), so `cli.prepare` cannot pool them again. Every array is checked (the manifest's number of steps, 6144 columns, float32, finite).
+- The source manifest has no task name and no condition: the task is read from `dir` (`<task>/ep<NNN>`) and also stands in for the condition, so the stratified split puts every task into every part.
+- The failure onset is the manifest's frame divided by that episode's `replan_steps` (5 in 18 episodes, 6 in the rest); the import checks that it equals the `failure_policy_step` of the labels in all 254 failures.
+- There is no `actions.npz`, `task_embeddings.npz` or `splits/`. The saved plans (`predicted_action_chunks`, 16 x 8) hold only the executed 5 to 7 actions of each call, the rest is NaN, so no two plans overlap in time (74% of consecutive calls share no step, 25% share one): STAC, STAC-Single, ActProbe and FailureSpot cannot be run, and the baseline commands list them as skipped. The actions are also 8-dimensional (position, quaternion, gripper), not 7.
+- Splits: one per task (`loto_<task>`, leave one task out), see `docs/SPLITS.md`.

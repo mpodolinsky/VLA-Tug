@@ -117,4 +117,4 @@ def _family(family: str):
 
 
 for _name in FAMILIES:
-    register(_name)(_family(_name))
+    register(_name, needs_actions=True)(_family(_name))

@@ -9,15 +9,13 @@ file is written episode by episode to a temporary name and renamed once every ep
 overwritten.
 """
 
-import os
-import zipfile
 from multiprocessing import Pool
 from pathlib import Path
 
 import numpy as np
-from numpy.lib import format as npy_format
 
 from ..config import get
+from .features import write_arrays
 from .manifest import load_manifest
 
 ACTION_DIM = 7  # position (3), rotation (3), gripper (1)
@@ -53,22 +51,20 @@ def prepare_actions(dataset: str, rollout_root: str | Path, workers: int = 4) ->
     missing = [str(p) for _, p, _ in jobs if not p.exists()]
     if missing:
         raise FileNotFoundError(f"{len(missing)} rollouts not found under {rollout_root}, e.g. {missing[:2]}")
-    tmp = out.with_name(out.name + ".tmp")
     n_steps = {e.key: e.n_steps for e in episodes}
     shapes = set()
-    try:
-        with zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED, allowZip64=True) as zf, Pool(workers) as pool:
-            for key, x in pool.imap(_read_one, jobs):
-                if len(x) != n_steps[key]:
-                    raise ValueError(f"{key}: {len(x)} policy calls, the manifest says {n_steps[key]}")
-                shapes.add(x.shape[1:])
-                with zf.open(f"{key}.npy", "w", force_zip64=True) as f:
-                    npy_format.write_array(f, x, allow_pickle=False)
-        if len(shapes) != 1:
+
+    def checked():
+        for key, x in pool.imap(_read_one, jobs):
+            if len(x) != n_steps[key]:
+                raise ValueError(f"{key}: {len(x)} policy calls, the manifest says {n_steps[key]}")
+            shapes.add(x.shape[1:])
+            yield key, x
+        if len(shapes) != 1:  # after the last episode, before the file is renamed
             raise ValueError(f"the episodes of {dataset} do not share one (K, H, A): {sorted(shapes)}")
-        os.replace(tmp, out)
-    finally:
-        tmp.unlink(missing_ok=True)
+
+    with Pool(workers) as pool:
+        write_arrays(out, checked())
     return out
 
 

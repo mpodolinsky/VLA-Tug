@@ -322,8 +322,9 @@ def test_seen_is_the_top_row_unseen_the_bottom_one_and_one_legend_below_has_no_c
     unseen = synthetic_curves(figures.SETTINGS, entries)
     seen = {k: np.asarray(v) + 5.0 for k, v in unseen.items()}  # distinguishable from the unseen curves
     fig = plots.curves_figure([("Seen tasks", seen), ("Unseen tasks", unseen)], list(figures.SETTINGS), entries, "TPR early (%)")
-    top, bottom = fig.axes[:5], fig.axes[5:]
-    assert len(fig.axes) == 10 and len({round(ax.get_position().y0, 3) for ax in top}) == len({round(ax.get_position().y0, 3) for ax in bottom}) == 1
+    n = len(figures.SETTINGS)
+    top, bottom = fig.axes[:n], fig.axes[n:2 * n]
+    assert len(fig.axes) == 2 * n and len({round(ax.get_position().y0, 3) for ax in top}) == len({round(ax.get_position().y0, 3) for ax in bottom}) == 1
     assert top[0].get_position().y0 > bottom[0].get_position().y0  # seen above unseen
     assert [ax.get_title() for ax in top] == [s.label for s in figures.SETTINGS] and not any(ax.get_title() for ax in bottom)  # names above the top row only
     assert all(ax.get_xlabel() == "FPR (%)" for ax in bottom) and not any(ax.get_xlabel() for ax in top)
@@ -390,7 +391,7 @@ def test_the_figure_is_as_wide_as_its_panels_and_save_writes_png_and_pdf(tmp_pat
     entries = list(figures.ENTRIES[:2])
     narrow = plots.curves_figure(one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y")
     wide = plots.curves_figure(one_row(figures.SETTINGS, entries), list(figures.SETTINGS), entries, "y")
-    assert wide.get_size_inches()[0] / narrow.get_size_inches()[0] == pytest.approx(5 / 2)
+    assert wide.get_size_inches()[0] / narrow.get_size_inches()[0] == pytest.approx(len(figures.SETTINGS) / 2)
     paths = plots.save(wide, "demo", tmp_path / "out")
     assert [p.name for p in paths] == ["demo.png", "demo.pdf"] and all(p.stat().st_size > 1000 for p in paths)
     matplotlib.pyplot.close(narrow)
@@ -415,7 +416,7 @@ def test_the_command_writes_the_tables_the_chosen_methods_and_the_two_curve_figu
     assert not any(line.startswith("SAFE-LSTM") for line in tex.splitlines())  # its grid has 12 configurations and only one was run: no row
     assert "skipped: LIBERO-10 GR00T / SAFE-LSTM" in capsys.readouterr().out
     stac = next(line for line in tex.splitlines() if line.startswith("STAC"))
-    assert "20.0" in stac and "21.0" in stac and stac.count("--") == 11  # one setting has runs (2 area cells); 8 area cells and, with no LIBERO-X runs, 3 costs are missing
+    assert "20.0" in stac and "21.0" in stac and stac.count("--") == 2 * len(figures.SETTINGS) - 2 + 3  # one setting has runs (2 area cells); the other area cells and, with no LIBERO-X runs, 3 costs are missing
     assert (out / "table_main_std.tex").exists()
     chosen = (out / "chosen.csv").read_text()
     assert "LIBERO-10 GR00T,STAC,stac__mmd3_step,max_conformal" in chosen
@@ -423,7 +424,7 @@ def test_the_command_writes_the_tables_the_chosen_methods_and_the_two_curve_figu
         assert (out / f"{stem}.png").exists() and (out / f"{stem}.pdf").exists()
     header = (out / "table_main.csv").read_text().splitlines()[0]
     assert header.startswith(f"method,calibrator,{figures.SETTINGS[0].label} seen mean") and header.endswith("Score (ms/step)")
-    assert [s.label for s in figures.SETTINGS] == ["LIBERO-10 π0.5", "LIBERO-10 GR00T", "LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill"]  # the requested order
+    assert [s.label for s in figures.SETTINGS] == ["LIBERO-10 π0.5", "LIBERO-10 GR00T", "LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill", "Real robot"]  # the requested order, the real robot last
 
 
 def test_the_command_prints_the_benchmark_commands_instead_of_writing_anything(results, monkeypatch, capsys):
@@ -436,3 +437,23 @@ def test_the_command_prints_the_benchmark_commands_instead_of_writing_anything(r
     printed = capsys.readouterr().out
     assert "python -m cli.train --out /tmp/bench --datasets liberox_groot --variants onset_pre --probes" in printed and "--splits task_seed0 task_seed1" in printed
     assert not out.exists()
+
+
+def test_the_real_robot_setting_is_last_pools_its_leave_one_task_out_splits_and_has_no_action_baselines(tmp_path):
+    real = figures.SETTINGS[-1]
+    assert (real.label, real.dataset, real.group) == ("Real robot", "real8_groot", "all")
+    root = tmp_path / "results"
+    arch = figures.OURS_ARCHITECTURE
+    safe = safe_method_names("safe_lstm")
+    for split in ("loto_basket", "loto_tomato"):
+        write_run(root, "real8_groot", split, f"{arch}__onset_pre", 40.0)
+        write_run(root, "real8_groot", split, "mahalanobis__d32_c16_step", 25.0, calibrator="safe_band")
+        for i, name in enumerate(safe):
+            write_run(root, "real8_groot", split, name, 80.0 if i == 7 else 5.0, calibrator="safe_band")
+    rows = collect_rows(root)
+    chosen, skipped = figures.choose_all(rows, settings=[real])
+    assert chosen[("Real robot", "Ours (onset_pre)")] == f"{arch}__onset_pre"
+    assert chosen[("Real robot", "SAFE-LSTM")] == safe[7]  # its own best configuration: the shared rule belongs to LIBERO-X only
+    for entry in ("STAC", "STAC-Single", "ActProbe", "FailureSpot"):
+        assert ("Real robot", entry) not in chosen and any(line.startswith(f"Real robot / {entry}:") for line in skipped)
+    assert figures.splits_of(rows, real) == ["loto_basket", "loto_tomato"] and figures.area_cell(rows, real, chosen[("Real robot", "SAFE-LSTM")], "unseen").n == 2

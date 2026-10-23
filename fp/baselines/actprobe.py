@@ -206,7 +206,7 @@ class ActProbeScorer(Scorer):
         self.mean, self.std = saved["mean"], saved["std"]
 
 
-@register("actprobe")
+@register("actprobe", needs_actions=True)
 def build(context: Context, split: Split) -> list[ActProbeScorer]:
     if context.actions is None:
         raise ValueError("ActProbe needs the sampled action chunks: python -m cli.prepare_actions <dataset> <rollout_root>")

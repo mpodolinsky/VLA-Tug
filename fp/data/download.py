@@ -28,6 +28,8 @@ def download_dataset(dataset: str, fetch: Callable | None = None) -> Path:
     ``fetch`` has the signature of ``huggingface_hub.snapshot_download`` (the default); tests pass a stand-in.
     """
     spec = get(dataset)
+    if not spec.hf_repo:
+        raise ValueError(f"{dataset} has no Hub repo: its data is kept local (python -m cli.import_real)")
     folder = spec.data_dir
     existing = [folder / name for name in POOLED_FILES if (folder / name).exists()]
     if existing:

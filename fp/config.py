@@ -20,13 +20,13 @@ FEATURE_DIM = 3 * MODALITY_DIM
 class DatasetSpec:
     name: str
     policy: str  # "groot" | "pi05"
-    suite: str  # "libero10_occ" | "liberox_level123"
+    suite: str  # "libero10_occ" | "liberox_level123" | "real8" (real robot)
     replan_steps: int  # control steps executed per policy call
     control_hz: float
     window_steps: int  # on-time window, in policy steps
-    has_k10: bool  # sampled action chunks available (needed by STAC)
+    has_actions: bool  # the whole planned action chunk of every call is saved (LIBERO: K = 10 sampled chunks); the action-based baselines need it
     split_kinds: tuple[str, ...]
-    hf_repo: str  # Hugging Face dataset with the raw per-token embeddings, labels, manifest and (LIBERO-X) split files
+    hf_repo: str  # Hugging Face dataset with the raw per-token embeddings, labels, manifest and (LIBERO-X) split files; empty if the data is kept local
 
     @property
     def window_seconds(self) -> float:
@@ -47,6 +47,9 @@ REGISTRY: dict[str, DatasetSpec] = {
         DatasetSpec("libero10_groot", "groot", "libero10_occ", 8, 20.0, 6, True, ("paper",), "podolinsky/groot-libero-10-features-v3"),
         DatasetSpec("libero10_pi05", "pi05", "libero10_occ", 5, 20.0, 10, True, ("paper",), "podolinsky/pi0.5-libero-10-features-v3"),
         DatasetSpec("liberox_groot", "groot", "liberox_level123", 8, 20.0, 6, True, ("task", "signature", "skill"), "podolinsky/gr00t-libero-x-features-v3"),
+        # real robot, 8 tasks: about 50 Hz, 6 control steps per call, the 2.4 s window of the other GR00T datasets (20 calls); the saved plans hold only
+        # the executed actions (the rest is NaN), so there are no action chunks; the data stays local
+        DatasetSpec("real8_groot", "groot", "real8", 6, 50.0, 20, False, ("loto", "full"), ""),
     )
 }
 

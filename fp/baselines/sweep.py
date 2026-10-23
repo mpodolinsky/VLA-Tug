@@ -116,8 +116,14 @@ def run_scorer(scorer: Scorer, family: str, split: Split, inputs: Inputs, device
 def run_unit(unit: BaselineUnit, context: Context, settings: Settings, log: Callable[[str], None] = print, methods: list[str] | None = None) -> int:
     """Run the scorers of the unit that have no run yet (all, or only the named methods); returns how many runs were written."""
     split = context.inputs.splits[unit.split]
-    scorers = [s for s in build(unit.family, context, split)
+    try:
+        built = build(unit.family, context, split)
+    except NotImplementedError as reason:
+        log(f"{unit.dataset}/{unit.split}/{unit.family}: skipped, {reason}")
+        return 0
+    scorers = [s for s in built
                if (methods is None or s.name in methods) and not is_done(run_dir(unit.dataset, unit.split, s.name, settings.out))]
+    del built  # a second reference would keep every fitted scorer alive until the unit ends
     if not scorers:
         return 0
     settings.out.mkdir(parents=True, exist_ok=True)

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import torch
 
-from fp.baselines.registry import FAMILIES, Context
+from fp.baselines.registry import FAMILIES, Context, build
 from fp.baselines.sweep import LazyActions, LazyFeatures, Settings, baseline_units, run_unit
 from fp.config import RESULTS
 from fp.data.features import feature_lengths
@@ -72,7 +72,11 @@ def main() -> None:
         for i, u in enumerate(units):
             keys = list(inputs[u.dataset].episodes)  # (nothing is loaded: the lazy mappings read only when asked for a value)
             context = Context(inputs[u.dataset], LazyFeatures(u.dataset, keys), actions=LazyActions(u.dataset, keys))
-            built = [s.name for s in FAMILIES[u.family](context, inputs[u.dataset].splits[u.split])]
+            try:
+                built = [s.name for s in build(u.family, context, inputs[u.dataset].splits[u.split])]
+            except NotImplementedError as reason:
+                print(f"{i:3d}  {u.dataset:15s} {u.split:28s} {u.family:12s} skipped: {reason}")
+                continue
             methods = [m for m in built if not args.methods or m in args.methods]
             done = sum(is_done(run_dir(u.dataset, u.split, m, args.out)) for m in methods)
             print(f"{i:3d}  {u.dataset:15s} {u.split:28s} {u.family:12s} {done}/{len(methods)} runs done")

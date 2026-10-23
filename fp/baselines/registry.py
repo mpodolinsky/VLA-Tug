@@ -13,6 +13,7 @@ from typing import Callable, Mapping
 
 import numpy as np
 
+from .. import config
 from ..data.inputs import Inputs
 from ..data.splits import Split
 from ..models.base import Scorer
@@ -29,11 +30,14 @@ class Context:
 
 
 FAMILIES: dict[str, Callable[[Context, Split], list[Scorer]]] = {}
+NEEDS_ACTIONS: set[str] = set()  # the families that read data/<dataset>/actions.npz
 
 
-def register(name: str):
+def register(name: str, needs_actions: bool = False):
     def wrap(factory):
         FAMILIES[name] = factory
+        if needs_actions:
+            NEEDS_ACTIONS.add(name)
         return factory
 
     return wrap
@@ -42,4 +46,6 @@ def register(name: str):
 def build(name: str, context: Context, split: Split) -> list[Scorer]:
     if name not in FAMILIES:
         raise KeyError(f"unknown baseline family {name!r}; registered: {sorted(FAMILIES)}")
+    if name in NEEDS_ACTIONS and not config.get(context.inputs.dataset).has_actions:
+        raise NotImplementedError(f"{name} needs the planned action chunks of every call, which {context.inputs.dataset} does not have (its saved plans hold only the executed actions)")
     return FAMILIES[name](context, split)

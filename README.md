@@ -32,6 +32,8 @@ python -m cli.download libero10_groot      # or libero10_pi05, liberox_groot
 
 Both files can also be recomputed from the raw rollouts and labels with `python -m cli.prepare` and `python -m cli.targets`; see [`data/README.md`](data/README.md).
 
+The real-robot dataset `real8_groot` (GR00T on eight tasks) is not published. `python -m cli.import_real real8_groot <collection folder>` builds its `data/` folder from the collected rollouts and labels (see `data/README.md`).
+
 ## Tests
 
 ```
