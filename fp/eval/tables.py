@@ -118,15 +118,22 @@ def csv_rows(rows: list[Row], settings: list[str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------- the failure-mode table
-# The mode table has 12 numeric columns against the main table's 15, so scaling it to the full text width would make its text larger than the main
-# table's. It is set at this fraction of the text width instead, the main table's scale (it fills the text width) applied to the mode table's own
+# The mode table has fewer numeric columns than the main table's 15, so scaling it to the full text width would make its text larger than the main
+# table's. It is set at a fraction of the text width instead, the main table's scale (it fills the text width) applied to the mode table's own
 # natural width, so that both have the same text size. Measured with pdflatex at the normal font size in a two-column article: the natural
-# widths are 9.93 in (main table) and 6.65 in (this one), 6.65 / 9.93 = 0.67; see docs/FIGURES.md (the sizes need not be identical).
-MODE_TABLE_WIDTH = 0.67
-MODE_CAPTION = (r"Failure-mode prediction on LIBERO-X (10 modes): top-1 and top-3 accuracy in \%, the mean over the splits of each kind. "
+# width of the main table is 785.7 pt (10.87 in), that of the mode table 480.6 pt for three settings and 616.4 pt for four, i.e. 72.8 pt for the
+# label column plus 135.9 pt per setting: a fraction of 0.093 + 0.173 per setting of the main table's width, 0.61 and 0.78 for three and four
+# settings; see docs/FIGURES.md (the sizes need not be identical).
+MODE_TABLE_WIDTH_BASE, MODE_TABLE_WIDTH_PER_SETTING = 0.093, 0.173
+
+
+def mode_table_width(n_settings: int) -> float:
+    """The width of the mode table as a fraction of the text width (see above)."""
+    return round(MODE_TABLE_WIDTH_BASE + MODE_TABLE_WIDTH_PER_SETTING * n_settings, 2)
+MODE_CAPTION = (r"Failure-mode prediction on LIBERO-X (10 modes)REAL: top-1 and top-3 accuracy in \%, the mean over the splits of each kind. "
                 r"Most common: always the most common training mode (top-3: the three most common); random: a uniform guess among the training "
                 r"modes. Shaded rows are our probe (one architecture), by label variant. The predicted mode is the one with the highest mean "
-                r"probability over the six steps before an anchor step and the anchor itself: the probe's first alarm (own detection, "
+                r"probability over the WINDOW before an anchor step and the anchor itself: the probe's first alarm (own detection, "
                 r"max-conformal at $\alpha = 0.2$, scored on the failures that have an alarm, COVERAGE of them) or the true failure onset (oracle "
                 r"onset, an upper bound a deployed system cannot reach, not marked). Best in bold, second best in italics, among the rows other "
                 r"than the oracle.")
@@ -142,11 +149,19 @@ class ModeRow:
     in_latex: bool = True
 
 
-def mode_caption(rows: list[ModeRow]) -> str:
-    """``MODE_CAPTION`` with the range of the share of failures that get an alarm read from the rows."""
+REAL_ROBOT = "Real robot"  # the label of the real-robot setting (``fp.eval.figures.SETTINGS``)
+REAL_CAPTION = (r" and on the real robot (GR00T on eight tasks, one held out at a time, the mean over five seeds, 40 splits; seven of the ten modes "
+                r"occur there, so the random baseline guesses among at most those)")
+
+
+def mode_caption(rows: list[ModeRow], settings: list[str] | None = None) -> str:
+    """``MODE_CAPTION`` with the range of the share of failures that get an alarm read from the rows, and the real robot described when it is one of
+    the ``settings`` (the window is 2.4 s on both datasets: six policy steps on LIBERO-X, 20 on the real robot)."""
     shares = [v for r in rows if r.share for v in r.share if v is not None]
     coverage = rf"{min(shares):.0f} to {max(shares):.0f}\%" if shares else "see the CSV"
-    return MODE_CAPTION.replace("COVERAGE", coverage)
+    real = REAL_ROBOT in (settings or [])
+    window = "2.4 s (six steps on LIBERO-X, 20 on the real robot)" if real else "six steps"
+    return MODE_CAPTION.replace("COVERAGE", coverage).replace("REAL", REAL_CAPTION if real else "").replace("WINDOW", window)
 
 
 def mode_latex_table(rows: list[ModeRow], settings: list[str], caption: str | None = None, label: str = "tab:modes",
@@ -181,8 +196,8 @@ def mode_latex_table(rows: list[ModeRow], settings: list[str], caption: str | No
         lines.append(("" if r.group == "baseline" else r"\rowcolor{gray!15} ") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
-                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or mode_caption(rows)}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
-                      rf"\resizebox{{{MODE_TABLE_WIDTH}\textwidth}}{{!}}{{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or mode_caption(rows, settings)}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
+                      rf"\resizebox{{{mode_table_width(m)}\textwidth}}{{!}}{{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
 
 
 def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:

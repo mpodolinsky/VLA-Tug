@@ -10,11 +10,12 @@ from fp.calibration.max_conformal import MaxConformal
 from fp.data.manifest import Episode
 from fp.data.splits import Split
 from fp.eval import figures, modes, tables
-from fp.eval.modes import LIBEROX, baseline_accuracy, evaluate_split, hit, mode_results, mode_rows, softmax, window_probs
+from fp.eval.modes import LIBEROX, REAL, baseline_accuracy, evaluate_split, hit, mode_results, mode_rows, softmax, window_probs
 
 ARCH = figures.OURS_ARCHITECTURE
 VARIANTS = ("onset_pre", "onset_traj", "onset", "onset_post")
 TASK = next(s for s in LIBEROX if s.group == "task")
+ROBOT = REAL[0]
 
 
 # ---------------------------------------------------------------- the pieces
@@ -93,20 +94,20 @@ FAILURES = [f"F{i}" for i in range(10)]
 TRUE_MODE = {"F0": 0, "F1": 0, "F2": 1, "F3": 2, "F4": 0, "F5": 1, "F6": 0, "F7": 0, "F8": 2, "F9": 1}
 
 
-def synthetic_inputs():
+def synthetic_inputs(dataset="liberox_groot", names=("task_seed0", "task_seed1")):
     episodes = {k: Episode(k, True, "t", 8, None, "a") for k in SUCCESSES} | {k: Episode(k, False, "t", 8, 4, "a") for k in FAILURES}
     train, val = ["S0", "S1", "F0", "F1", "F2", "F3"], ["S9", "F7"]
     calibration, seen, unseen = [f"S{i}" for i in range(2, 7)], ["S7", "F4", "F5", "F6"], ["S8", "F7", "F8", "F9"]
-    splits = {f"task_seed{i}": Split(f"task_seed{i}", train, val, calibration, seen, unseen, seed=i) for i in range(2)}
-    return SimpleNamespace(dataset="liberox_groot", episodes=episodes, targets=SimpleNamespace(modes=TRUE_MODE), splits=splits, window=1)
+    splits = {name: Split(name, train, val, calibration, seen, unseen, seed=i) for i, name in enumerate(names)}
+    return SimpleNamespace(dataset=dataset, episodes=episodes, targets=SimpleNamespace(modes=TRUE_MODE), splits=splits, window=1)
 
 
-def write_runs(root, early_for_split):
+def write_runs(root, early_for_split, dataset="liberox_groot"):
     """Every variant of our one architecture on both splits. Successes top out at 0.1 ... 0.5 on the calibration episodes (threshold 0.5 at alpha 0.2);
     failures alarm at step 2 and their onset is step 4. The head says ``early_for_split[split]`` in steps 0..2 and the true mode from step 3 on."""
     for split, early in early_for_split.items():
         for variant in ("onset_pre", "onset_traj", "onset", "onset_post"):
-            folder = root / "liberox_groot" / split / f"{ARCH}__{variant}"
+            folder = root / dataset / split / f"{ARCH}__{variant}"
             folder.mkdir(parents=True)
             scores = {f"S{i}": np.full(8, 0.1 * (i - 1)) for i in range(10)} | {k: np.array([0, 0, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]) for k in FAILURES}
             np.savez(folder / "scores.npz", **scores)
@@ -192,7 +193,7 @@ def test_the_layout_is_compact_top_1_and_top_3_side_by_side_with_two_group_headi
     assert r"\multicolumn{5}{l}{Ours, own detection (first alarm)}" in tex and r"\multicolumn{5}{l}{Ours, oracle onset (upper bound)}" in tex
     assert tex.count(r"\toprule") == tex.count(r"\bottomrule") == 1 and tex.count(r"\midrule") == 3 and tex.count(r"\cmidrule") >= 4
     assert tex.index("Most common") < tex.index("own detection") < tex.index("oracle onset (upper bound)")  # baselines, own detection, oracle
-    order = [tex.index(s) for s in (r"\begin{table*}", r"\caption{", r"\label{tab:modes}", r"\resizebox{0.67\textwidth}{!}{%", r"\begin{tabular}", r"\end{tabular}%", r"\end{table*}")]
+    order = [tex.index(s) for s in (r"\begin{table*}", r"\caption{", r"\label{tab:modes}", rf"\resizebox{{{tables.mode_table_width(1)}\textwidth}}{{!}}{{%", r"\begin{tabular}", r"\end{tabular}%", r"\end{table*}")]
     assert order == sorted(order) and tex.count("{") == tex.count("}")
     assert len([line for line in tex.splitlines() if line.startswith(("Most common", "Random", r"\rowcolor"))]) == 4  # a compact table: four rows here
 
@@ -225,8 +226,7 @@ def test_the_command_writes_the_mode_table_when_the_runs_exist_and_says_so_when_
     inputs = synthetic_inputs()
     monkeypatch.setattr(cli_figures, "load_inputs", lambda dataset: inputs)
     monkeypatch.setattr(modes, "LIBEROX", (TASK,))
-    original = modes.mode_results
-    monkeypatch.setattr(modes, "mode_results", lambda i, r, **kw: original(i, r, settings=[TASK], **kw))
+    monkeypatch.setattr(modes, "REAL", ())
     monkeypatch.setattr(sys, "argv", ["figures", "--root", str(root), "--out", str(tmp_path / "out"), "--costs", str(tmp_path / "none")])
     cli_figures.main()
     out = tmp_path / "out"
@@ -240,3 +240,47 @@ def test_the_command_writes_the_mode_table_when_the_runs_exist_and_says_so_when_
     printed = capsys.readouterr().out
     assert "no failure-mode table" in printed and "no evaluated runs" in printed and not (tmp_path / "out2" / "table_modes.tex").exists()
     assert not (tmp_path / "out2" / "table_main.tex").exists()  # nothing evaluated: no main table and no curves, and no crash
+
+
+def test_the_command_adds_the_real_robot_columns_when_its_runs_exist_and_leaves_them_out_with_a_message_when_they_do_not(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "results"
+    write_runs(root, {"task_seed0": "true", "task_seed1": "wrong"})
+    write_runs(root, {"loto_a": "true", "lotoseed1_a": "wrong"}, dataset="real8_groot")
+    inputs = {"liberox_groot": synthetic_inputs(), "real8_groot": synthetic_inputs("real8_groot", ("loto_a", "lotoseed1_a"))}
+    monkeypatch.setattr(cli_figures, "load_inputs", lambda dataset: inputs[dataset])
+    monkeypatch.setattr(modes, "LIBEROX", (TASK,))
+    monkeypatch.setattr(modes, "REAL", (ROBOT,))
+    argv = lambda out: ["figures", "--root", str(root), "--out", str(tmp_path / out), "--costs", str(tmp_path / "none")]
+    monkeypatch.setattr(sys, "argv", argv("with_real"))
+    cli_figures.main()
+    tex = (tmp_path / "with_real" / "table_modes.tex").read_text()
+    rows = list(csv.DictReader(open(tmp_path / "with_real" / "table_modes.csv")))
+    own = next(r for r in rows if r["method"] == "onset_pre" and r["group"] == "detected")
+    assert r"\multicolumn{2}{c}{Real robot}" in tex and "and on the real robot (GR00T on eight tasks" in tex  # the columns and the caption sentence
+    assert float(own["top-1 LIBERO-X task seen"]) == 50.0 and float(own["top-1 Real robot seen"]) == 50.0  # right in one split, wrong in the other, in both datasets
+    # the real robot's runs are missing: the LIBERO-X table is still written, without its columns
+    (root / "real8_groot" / "lotoseed1_a" / f"{ARCH}__onset_pre" / "scores.npz").unlink()
+    monkeypatch.setattr(sys, "argv", argv("without_real"))
+    capsys.readouterr()
+    cli_figures.main()
+    assert "no failure-mode column for real8_groot" in capsys.readouterr().out
+    assert "Real robot" not in (tmp_path / "without_real" / "table_modes.tex").read_text()
+
+
+def test_the_extra_seed_splits_of_a_setting_are_averaged_in_with_the_pooled_ones_and_only_if_the_setting_names_their_group(tmp_path):
+    write_runs(tmp_path, {"loto_a": "true", "lotoseed1_a": "wrong"}, dataset="real8_groot")
+    inputs = synthetic_inputs("real8_groot", ("loto_a", "lotoseed1_a"))
+    key = ("detected", "Ours (onset_pre)", "top1", "Real robot", "seen")
+    assert mode_results(inputs, tmp_path, settings=[ROBOT])[key] == pytest.approx(50.0)  # both splits count once: right in one, wrong in the other
+    pooled_only = figures.Setting("Real robot", "real8_groot", "all")
+    assert mode_results(inputs, tmp_path, settings=[pooled_only])[key] == pytest.approx(100.0)  # the seed split is not read
+
+
+def test_the_real_robot_setting_is_registered_and_the_caption_and_the_width_follow_the_columns():
+    assert (ROBOT.dataset, ROBOT.group, ROBOT.also) == ("real8_groot", "all", ("loto_seeds",)) and len(REAL) == 1
+    rows = toy_rows()
+    plain, real = tables.mode_caption(rows, ["LIBERO-X task"]), tables.mode_caption(rows, ["LIBERO-X task", "Real robot"])
+    assert "real robot" not in plain and "over the six steps before an anchor step" in plain  # unchanged without the real robot
+    assert "and on the real robot" in real and "2.4 s (six steps on LIBERO-X, 20 on the real robot)" in real and "REAL" not in real and "WINDOW" not in real
+    assert tables.mode_caption(rows) == plain  # no settings given: the LIBERO-X text
+    assert [tables.mode_table_width(m) for m in (3, 4)] == [0.61, 0.78]  # measured: 480.6 pt and 616.4 pt of the main table's 785.7 pt

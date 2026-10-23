@@ -96,13 +96,22 @@ def write_main_table(args, rows: list[dict], chosen: dict) -> None:
 
 
 def write_mode_table(args) -> None:
-    """The failure-mode table of LIBERO-X (fp/eval/modes.py); skipped with a message when its probe runs or the data are not there."""
-    try:
-        rows = modes.mode_rows(modes.mode_results(load_inputs("liberox_groot"), args.root))
-    except (FileNotFoundError, KeyError) as error:
-        print(f"no failure-mode table: {error}")
-        return
-    labels = [s.label for s in modes.LIBEROX]
+    """The failure-mode table (fp/eval/modes.py): the LIBERO-X columns, then the real robot's. The table is skipped with a message when the LIBERO-X
+    probe runs or data are not there; the real robot's data are not published, so its columns are left out, with a message, when they are not there."""
+    results, settings = {}, []
+    for dataset, group in (("liberox_groot", modes.LIBEROX), ("real8_groot", modes.REAL)):
+        if not group:
+            continue
+        try:
+            results |= modes.mode_results(load_inputs(dataset), args.root, settings=group)
+        except (FileNotFoundError, KeyError) as error:
+            print(f"no failure-mode table: {error}" if not settings else f"no failure-mode column for {dataset}: {error}")
+            if not settings:
+                return
+            continue
+        settings += group
+    rows = modes.mode_rows(results, settings=settings)
+    labels = [s.label for s in settings]
     (args.out / "table_modes.tex").write_text(tables.mode_latex_table(rows, labels))
     write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(rows, labels))
     print("wrote", args.out / "table_modes.tex", "and table_modes.csv")

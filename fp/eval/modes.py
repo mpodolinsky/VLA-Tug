@@ -1,8 +1,8 @@
-"""Failure-mode prediction of our probes on LIBERO-X, from the saved runs (no model is run).
+"""Failure-mode prediction of our probes on LIBERO-X and on the real robot, from the saved runs (no model is run).
 
 The mode head of a probe gives, at every policy step, logits over the 10 failure modes (``fp.data.targets.MODE_NAMES``). A failed episode has one
 true mode, so the head is scored per failed episode: the mean softmax over a window of steps, ``window`` steps before an anchor step plus the anchor
-itself (the on-time window of the detection metric: 7 steps), and the mode(s) with the highest mean probability are the prediction. Top-k accuracy is
+itself (the on-time window of the detection metric, 2.4 s: 7 steps on LIBERO-X, 21 on the real robot), and the mode(s) with the highest mean probability are the prediction. Top-k accuracy is
 the share of failed episodes whose true mode is among the k highest. Two anchors:
 
     oracle onset   the true failure onset: an upper bound, since a deployed system does not know when the failure starts
@@ -32,6 +32,7 @@ ALPHA = 0.2  # the operating point of own detection: at most 20% false alarms on
 TOP_K = (1, 3)
 SETS = ("seen", "unseen")
 LIBEROX = tuple(s for s in SETTINGS if s.dataset == "liberox_groot")
+REAL = tuple(s for s in SETTINGS if s.dataset == "real8_groot")  # the real robot: leave one task out, the splits of its extra seeds averaged in (``Setting.also``)
 
 
 def softmax(x: np.ndarray) -> np.ndarray:
@@ -86,7 +87,7 @@ def mode_results(inputs, root, entries: list[Entry] | None = None, settings=LIBE
     entries = [e for e in ENTRIES if e.variant] if entries is None else entries
     per_split = defaultdict(list)
     for setting in settings:
-        for name in (n for n in inputs.splits if group_of(n) == setting.group):
+        for name in (n for n in inputs.splits if group_of(n) in (setting.group, *setting.also)):
             split = inputs.splits[name]
             train_modes = [int(inputs.targets.modes[k]) for k in split.train if not inputs.episodes[k].success]
             sets = {e: [k for k in getattr(split, e)] for e in SETS}
