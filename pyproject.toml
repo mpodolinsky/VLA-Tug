@@ -15,6 +15,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest"]
+hub = ["safetensors"]  # only to export the models for scripts/push_models_to_hub.py (and to run its tests)
 targets = ["transformers"]  # only to rebuild targets.npz (CLIP text embeddings) and task_embeddings.npz (Qwen3 embeddings)
 
 [tool.setuptools.packages.find]
