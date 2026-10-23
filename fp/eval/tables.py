@@ -301,3 +301,92 @@ def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:
                                f"{name} tpr early mean": round(cells.tpr_early[0], 3), f"{name} tpr early std": round(cells.tpr_early[1], 3)})
         out.append(record)
     return out
+
+
+# ---------------------------------------------------------------- the ablation table
+ABLATION_CAPTION = (r"Ablations of our probe on LIBERO-X: the area under the curve of TPR early against FPR up to 40\% (in \%, higher is better), the mean "
+                    r"over the splits of each kind of held-out set and, after $\pm$, the standard deviation; in brackets the change relative to our probe "
+                    r"(shaded, the same model in both blocks). SPLITS Seen: held-out episodes of tasks the probe trained on; unseen: held-out tasks, "
+                    r"signatures or skills. Heads: the architecture (LSTM trunk, no attention) with the pre-onset label, so the rows differ only in the "
+                    r"mode head and the CLIP head. Training strategy: the positive label of our architecture: the whole pre-onset trajectory "
+                    r"(\texttt{onset\_pre}), every step of the failed rollout (\texttt{onset\_traj}), the window before the onset only (\texttt{onset}), "
+                    r"or the window and everything after it (\texttt{onset\_post}). Best in bold, second best in italics, within each block.")
+# The table is set at this fraction of the text width, its natural width relative to the main table's (559.9 pt against 785.7 pt, measured with
+# pdflatex in a two-column article as for the mode table, see above), so that its text has about the size of the main table's.
+ABLATION_TABLE_WIDTH = 0.71
+
+
+@dataclass(frozen=True)
+class AblationCell:
+    mean: float  # the area, in %
+    std: float  # population std over the splits of the setting
+    n: int  # number of splits
+    change: float | None  # relative change of the mean against the baseline row of the block, in %; None on the baseline row
+
+
+@dataclass(frozen=True)
+class AblationRow:
+    label: str
+    ours: bool
+    cells: list[AblationCell | None]  # one per setting and set in the order of ``columns``
+
+
+@dataclass(frozen=True)
+class AblationBlock:
+    title: str
+    rows: list[AblationRow]  # the baseline (our probe) first
+
+
+def signed_percent(value: float) -> str:
+    """'+6\\%' or '$-$27\\%', rounded to whole percent; the sign follows the rounded value."""
+    shown = round(value)
+    return ("+" if shown >= 0 else "$-$") + percent(abs(shown))
+
+
+def ablation_caption(blocks: list[AblationBlock], settings: list[str]) -> str:
+    """``ABLATION_CAPTION`` with the number of splits of each setting read from the first row."""
+    counts = [f"{s.removeprefix('LIBERO-X ')} {c.n}" for s, c in zip(settings, blocks[0].rows[0].cells[::2]) if c is not None]
+    return ABLATION_CAPTION.replace("SPLITS", f"Number of splits: {', '.join(counts)}.")
+
+
+def ablation_tabular(blocks: list[AblationBlock], settings: list[str]) -> str:
+    """The bare ``tabular``: one block of rows per ablation under its heading, the baseline (shaded) first, best and second best marked per block."""
+    m, n = len(settings), 2 * len(settings)
+    short = [escape(s.removeprefix("LIBERO-X ")) for s in settings]
+    lines = [r"\begin{tabular}{l" + "r" * n + "}", r"\toprule", " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for s in short) + r" \\",
+             "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(m)), " & " + " & ".join(e.capitalize() for _ in range(m) for e in ("seen", "unseen")) + r" \\"]
+    for block in blocks:
+        lines += [r"\midrule", rf"\multicolumn{{{1 + n}}}{{l}}{{{escape(block.title)}}} \\"]
+        column_marks = [marks([r.cells[i].mean if r.cells[i] else None for r in block.rows], 1, True) for i in range(n)]
+        for k, r in enumerate(block.rows):
+            cells = []
+            for i, cell in enumerate(r.cells):
+                if cell is None:
+                    cells.append(MISSING)
+                    continue
+                text = style(number(cell.mean, 1), column_marks[i][k]) + rf"{{\scriptsize$\pm${cell.std:.1f}}}"
+                cells.append(text + ("" if cell.change is None else rf" {{\scriptsize({signed_percent(cell.change)})}}"))
+            lines.append((r"\rowcolor{gray!15} " if r.ours else "") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
+    return "\n".join(lines + [r"\bottomrule", r"\end{tabular}", ""])
+
+
+def ablation_latex_table(blocks: list[AblationBlock], settings: list[str], caption: str | None = None, label: str = "tab:ablations",
+                         source: str = "python -m cli.figures") -> str:
+    """The ablation table as a ``table*`` float (see ``latex_table``). Needs booktabs, graphicx and xcolor with the table option."""
+    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or ablation_caption(blocks, settings)}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
+                      rf"\resizebox{{{ABLATION_TABLE_WIDTH}\textwidth}}{{!}}{{%", ablation_tabular(blocks, settings).rstrip("\n") + "%", "}", r"\end{table*}", ""])
+
+
+def ablation_csv_rows(blocks: list[AblationBlock], settings: list[str]) -> list[dict]:
+    """One dict per row: its block and label, and the mean, std and change of every setting and set."""
+    out = []
+    for block in blocks:
+        for r in block.rows:
+            record = {"block": block.title, "variant": r.label, "ours": r.ours}
+            for (setting, eval_set), cell in zip(columns(settings), r.cells):
+                if cell is not None:
+                    record.update({f"{setting} {eval_set} mean": round(cell.mean, 3), f"{setting} {eval_set} std": round(cell.std, 3),
+                                   f"{setting} {eval_set} change %": None if cell.change is None else round(cell.change, 3)})
+            out.append(record)
+    return out

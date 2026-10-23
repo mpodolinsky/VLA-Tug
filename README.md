@@ -54,7 +54,7 @@ On a machine with unrelated pytest plugins installed system-wide, run `PYTEST_DI
 - [`docs/SPLITS.md`](docs/SPLITS.md): how episodes are split into train, validation, calibration, held-out and unseen sets.
 - [`docs/DISTANCE_BASELINES.md`](docs/DISTANCE_BASELINES.md): the embedding-distance baselines taken from SAFE and how their configuration is selected.
 - [`docs/ACTION_BASELINES.md`](docs/ACTION_BASELINES.md): STAC (eight configurations), ActProbe and FailureSpot, which read the sampled action chunks; decisions, deviations and what the checkpoint selection does.
-- [`docs/FIGURES.md`](docs/FIGURES.md): the main table and the curve figures (`python -m cli.figures`): what each shows, how the methods in them are chosen, how the costs are measured; also the table of Learn-then-Test against max-conformal (`python -m cli.ltt_table`).
+- [`docs/FIGURES.md`](docs/FIGURES.md): the main table and the curve figures (`python -m cli.figures`): what each shows, how the methods in them are chosen, how the costs are measured; also the ablation table (heads and training strategy of our probe) and the table of Learn-then-Test against max-conformal (`python -m cli.ltt_table`).
 
 ## Licences
 

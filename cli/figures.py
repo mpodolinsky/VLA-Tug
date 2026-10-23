@@ -4,8 +4,10 @@ The paper's main table and curve figures, from the evaluated runs under results/
 
     table_main.tex / .csv    one row per method: area under TPR early vs FPR (seen and unseen) for each setting, the calibrator, and the cost
                              on LIBERO-X; table_main_std.tex adds the spread over splits; chosen.csv names the configuration behind every cell
-    table_modes.tex / .csv   failure-mode prediction on LIBERO-X: top-1 and top-3 accuracy of the mode head at the probe's own alarm and at the
-                             true onset (an upper bound), against the most-common-mode baselines (fp/eval/modes.py)
+    table_modes.tex / .csv   failure-mode prediction on LIBERO-X and the real robot: top-1 and top-3 accuracy of the mode head at the probe's own
+                             alarm and at the true onset (an upper bound), against the most-common-mode baselines (fp/eval/modes.py)
+    table_ablations.tex/.csv the ablations of our probe on the three LIBERO-X split kinds: its heads and its training strategy, the area with the
+                             spread over the splits and the change against our probe (fp/eval/ablations.py)
     curves_tpr_early         TPR early against FPR for every setting and method (.png and .pdf): a row for the seen tasks on top, one for
                              the unseen tasks below
     curves_tpr_on_time       the same with the on-time TPR
@@ -22,7 +24,7 @@ from pathlib import Path
 from fp.calibration.protocol import calibrator_name
 from fp.config import RESULTS
 from fp.data.inputs import load_inputs
-from fp.eval import figures, modes, plots, tables
+from fp.eval import ablations, figures, modes, plots, tables
 from fp.eval.collect import collect_rows
 from fp.eval.compute import collect_costs
 
@@ -78,6 +80,7 @@ def main() -> None:
     if rows:
         write_main_table(args, rows, chosen)
         write_curves(args, rows, chosen)
+        write_ablation_table(args, rows)
     else:
         print(f"no evaluated runs under {args.root} (python -m cli.evaluate first): the main table and the curves are skipped")
     write_mode_table(args)
@@ -93,6 +96,19 @@ def write_main_table(args, rows: list[dict], chosen: dict) -> None:
     write_csv(args.out / "table_main.csv", tables.csv_rows(table, settings))
     write_csv(args.out / "chosen.csv", [{"setting": s, "entry": e, "method": m, "calibrator": calibrator_name(m)} for (s, e), m in chosen.items()])
     print("wrote", args.out / "table_main.tex", "(+ _std, .csv) and chosen.csv")
+
+
+def write_ablation_table(args, rows: list[dict]) -> None:
+    """The ablation table of LIBERO-X (fp/eval/ablations.py); skipped with a message when one of its probes has no evaluated runs."""
+    try:
+        blocks = ablations.ablation_blocks(rows)
+    except ValueError as error:
+        print(f"no ablation table: {error}")
+        return
+    labels = [s.label for s in ablations.LIBEROX]
+    (args.out / "table_ablations.tex").write_text(tables.ablation_latex_table(blocks, labels))
+    write_csv(args.out / "table_ablations.csv", tables.ablation_csv_rows(blocks, labels))
+    print("wrote", args.out / "table_ablations.tex", "and table_ablations.csv")
 
 
 def write_mode_table(args) -> None:
