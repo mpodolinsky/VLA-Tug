@@ -141,3 +141,12 @@ def test_the_history_is_plain_json(world, patched, tmp_path):
     train_unit(UNIT, patched, settings(tmp_path), "cpu", lambda m: None, ARCHS[1:])
     text = (run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path) / "history.json").read_text()
     assert set(json.loads(text)["val"]) == {"score", "mode", "clip"}
+
+
+def test_the_loss_weights_of_a_run_are_recorded_in_its_history(world, patched, tmp_path):
+    train_unit(UNIT, patched, settings(tmp_path, lam_mode=0.3, lam_clip=0.1), "cpu", lambda m: None, ARCHS[1:])
+    info = read_history(run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path))
+    assert (info["lam_mode"], info["lam_clip"]) == (0.3, 0.1)
+    train_unit(UNIT, patched, settings(tmp_path / "default"), "cpu", lambda m: None, ARCHS[1:])
+    default = read_history(run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path / "default"))
+    assert (default["lam_mode"], default["lam_clip"]) == (1.0, 1.0)

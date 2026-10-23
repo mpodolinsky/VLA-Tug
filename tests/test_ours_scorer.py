@@ -190,3 +190,48 @@ def test_a_failed_training_episode_without_a_mode_is_an_error(data):
     s = OursScorer(cfg(modes=True), "onset", episodes, features, broken, WINDOW, TRAIN_CFG, device="cpu")
     with pytest.raises(KeyError):
         s.fit(train, val)
+
+
+# ---------------------------------------------------------------- the weights of the mode and CLIP terms
+SHORT = TrainConfig(lr=5e-3, batch=8, max_epochs=3, patience=3, seed=0)
+
+
+def fit_with(data, **kw):
+    episodes, features, targets, train, val, *_ = data
+    s = OursScorer(cfg(modes=True, clip=True), "onset_pre", episodes, features, targets, WINDOW, SHORT, device="cpu", **kw)  # both heads
+    s.fit(train, val)
+    return s
+
+
+def untrained_heads():
+    """The heads of a probe as the scorer initialises it (same seed, same construction order)."""
+    from fp.models.ours import Probe
+
+    torch.manual_seed(SHORT.seed)
+    return Probe(cfg(modes=True, clip=True))
+
+
+def same(a, b):
+    return all(torch.equal(x, y) for x, y in zip(a.state_dict().values(), b.state_dict().values()))
+
+
+def test_the_weights_of_the_mode_and_clip_terms_reach_the_loss(data, monkeypatch):
+    from fp.train import ours
+
+    seen = []
+    original = ours.make_context
+    monkeypatch.setattr(ours, "make_context", lambda *a, **k: seen.append(a[4:] or (k.get("lam_mode"), k.get("lam_clip"))) or original(*a, **k))
+    fit_with(data, lam_mode=0.25, lam_clip=0.5)
+    fit_with(data)
+    assert seen == [(0.25, 0.5), (1.0, 1.0)]  # the default is the earlier behaviour: both terms at 1
+
+
+def test_a_term_with_weight_zero_leaves_its_head_untrained_while_the_other_head_and_the_trunk_learn(data):
+    reference = untrained_heads()
+    both_off = fit_with(data, lam_mode=0.0, lam_clip=0.0).model
+    assert same(both_off.mode, reference.mode) and same(both_off.sem, reference.sem)  # no gradient reaches either head
+    assert not same(both_off.trunk, reference.trunk) and not same(both_off.score, reference.score)  # the score term still trains the rest
+    mode_only = fit_with(data, lam_mode=1.0, lam_clip=0.0).model
+    assert not same(mode_only.mode, reference.mode) and same(mode_only.sem, reference.sem)
+    clip_only = fit_with(data, lam_mode=0.0, lam_clip=1.0).model
+    assert same(clip_only.mode, reference.mode) and not same(clip_only.sem, reference.sem)

@@ -34,6 +34,8 @@ class Settings:
     save_weights: bool = True
     save_heads: bool = True  # outputs of the mode and CLIP heads, for the architectures that have them
     min_free_gb: float = 20.0  # below this much free disk, scores and history are still written but weights and head outputs are not
+    lam_mode: float = 1.0  # weight of the mode term in the loss
+    lam_clip: float = 1.0  # weight of the CLIP term in the loss
 
 
 def head_arrays(scorer: OursScorer, outputs: dict[str, dict[str, np.ndarray]]) -> dict[str, dict[str, np.ndarray]]:
@@ -51,7 +53,7 @@ def train_probe(cfg: ProbeConfig, variant: str, split: Split, inputs: Inputs, fe
                 device: str) -> tuple[OursScorer, dict, dict]:
     """Fit one probe and run it on every episode; returns the scorer, the outputs of all its heads and the run's history."""
     train_cfg = TrainConfig(lr=default_lr(cfg.trunk), max_epochs=settings.max_epochs, patience=settings.patience, seed=split.seed)
-    scorer = OursScorer(cfg, variant, inputs.episodes, features, inputs.targets, inputs.window, train_cfg, device)
+    scorer = OursScorer(cfg, variant, inputs.episodes, features, inputs.targets, inputs.window, train_cfg, device, settings.lam_mode, settings.lam_clip)
     if torch.cuda.is_available():
         torch.cuda.reset_peak_memory_stats()
     reset_peak_rss()
@@ -64,7 +66,7 @@ def train_probe(cfg: ProbeConfig, variant: str, split: Split, inputs: Inputs, fe
     steps = sum(len(s) for s in outputs["score"].values())
     info = {
         **run_header(inputs.dataset, split, scorer.name, inputs.window, device, time.time() - start),
-        "variant": variant, "arch": asdict(cfg), "train_cfg": asdict(train_cfg), "best_epoch": r.best_epoch, "epochs": len(r.val["score"]),
+        "variant": variant, "arch": asdict(cfg), "lam_mode": settings.lam_mode, "lam_clip": settings.lam_clip, "train_cfg": asdict(train_cfg), "best_epoch": r.best_epoch, "epochs": len(r.val["score"]),
         "stopped_early": r.stopped_early, "train": r.train, "val": r.val,
         # What the run cost, as the baselines record it (see baselines/sweep.py). The GPU peak includes the split's standardised features,
         # which the sweep keeps on the device for all its probes; benchmark a single probe for the cost of the method alone.

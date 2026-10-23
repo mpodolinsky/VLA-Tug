@@ -31,8 +31,10 @@ from .standardised import StandardisedFeatures
 
 class OursScorer(Scorer):
     def __init__(self, cfg: ProbeConfig, label_variant: str, episodes: Mapping[str, Episode], features: StandardisedFeatures,
-                 targets: Targets, window: int, train_cfg: TrainConfig | None = None, device: str | None = None):
+                 targets: Targets, window: int, train_cfg: TrainConfig | None = None, device: str | None = None, lam_mode: float = 1.0,
+                 lam_clip: float = 1.0):
         self.cfg, self.label_variant, self.window = cfg, label_variant, window
+        self.lam_mode, self.lam_clip = lam_mode, lam_clip  # the weights of the mode and CLIP terms in the loss (the score term has 1)
         self.episodes, self.features, self.targets = episodes, features, targets
         self.train_cfg = train_cfg or TrainConfig(lr=default_lr(cfg.trunk))
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -55,7 +57,7 @@ class OursScorer(Scorer):
         if self.cfg.clip:  # the target space has the width of the semantic head
             space = fit_semantic_space(self.targets.embeddings, np.concatenate([it.phrase.numpy() for it in train]), dim=self.cfg.clip_dim)
         self.space = space
-        ctx = make_context(train, self.cfg, space, self.device)
+        ctx = make_context(train, self.cfg, space, self.device, self.lam_mode, self.lam_clip)
         torch.manual_seed(self.train_cfg.seed)
         self.model = Probe(self.cfg).to(self.device)
 

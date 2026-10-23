@@ -56,6 +56,8 @@ def main() -> None:
     p.add_argument("--patience", type=int, default=15)
     p.add_argument("--no-weights", action="store_true")
     p.add_argument("--no-heads", action="store_true", help="do not save the outputs of the mode and CLIP heads")
+    p.add_argument("--lam-mode", type=float, default=1.0, help="weight of the mode term in the loss (the score term has 1)")
+    p.add_argument("--lam-clip", type=float, default=1.0, help="weight of the CLIP term in the loss")
     p.add_argument("--min-free-gb", type=float, default=20.0)
     p.add_argument("--dry-run", action="store_true", help="print the units of this worker in run order and stop")
     p.add_argument("--preflight-only", action="store_true")
@@ -94,7 +96,7 @@ def main() -> None:
         return
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    settings = Settings(args.out, args.max_epochs, args.patience, not args.no_weights, not args.no_heads, args.min_free_gb)
+    settings = Settings(args.out, args.max_epochs, args.patience, not args.no_weights, not args.no_heads, args.min_free_gb, args.lam_mode, args.lam_clip)
     log(f"worker {index}/{count}: {len(mine)} units on {device}, writing to {args.out}")
     inputs, started, finished_units, written = {}, time.time(), 0, 0
     for u in mine:
