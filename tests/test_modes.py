@@ -10,9 +10,10 @@ from fp.calibration.max_conformal import MaxConformal
 from fp.data.manifest import Episode
 from fp.data.splits import Split
 from fp.eval import figures, modes, tables
-from fp.eval.modes import LIBEROX, baseline_accuracy, evaluate_split, hit, mode_blocks, mode_results, softmax, window_probs
+from fp.eval.modes import LIBEROX, baseline_accuracy, evaluate_split, hit, mode_results, mode_rows, softmax, window_probs
 
 ARCH = figures.OURS_ARCHITECTURE
+VARIANTS = ("onset_pre", "onset_traj", "onset", "onset_post")
 TASK = next(s for s in LIBEROX if s.group == "task")
 
 
@@ -151,54 +152,70 @@ def test_a_set_without_a_failure_is_left_out(tmp_path):
     assert not any(key[4] == "seen" for key in r) and ("majority", None, "top1", "LIBERO-X task", "unseen") in r
 
 
-def test_the_blocks_have_the_baselines_then_own_detection_then_the_oracle_and_unmarked_extras(results):
+def test_the_rows_have_the_baselines_then_own_detection_then_the_oracle_and_a_hidden_control(results):
     r, _ = results
-    blocks = mode_blocks(r, settings=[TASK])
-    assert [b.title for b in blocks] == ["Top-1 accuracy (%)", "Top-3 accuracy (%)", "Failed episodes with an alarm (%)",
-                                         "Top-1 accuracy (%), oracle onset on the failures that have an alarm", "Top-3 accuracy (%), oracle onset on the failures that have an alarm"]
-    assert [b.in_latex for b in blocks] == [True, True, True, False, False] and [b.marked for b in blocks] == [True, True, False, False, False]
-    top1, top3 = blocks[0], blocks[1]
-    assert [r_.group for r_ in top1.rows] == ["baseline"] * 2 + ["detected"] * 4 + ["oracle"] * 4
-    assert [top1.rows[0].label, top3.rows[0].label, top1.rows[2].label, top1.rows[6].label] == ["Majority class", "3 most common modes", "Ours (onset_pre), own detection", "Ours (onset_pre), oracle onset"]
-    assert len(top1.rows[2].values) == 2 and top1.rows[2].values[0] == pytest.approx(50.0)  # seen and unseen of the one setting
+    rows = mode_rows(r, settings=[TASK])
+    assert [(x.label, x.group) for x in rows] == ([("Most common", "baseline"), ("Random", "baseline")] + [(v, "detected") for v in VARIANTS]
+                                                  + [(v, "oracle") for v in VARIANTS] + [(v, "oracle_on_detected") for v in VARIANTS])
+    assert [x.in_latex for x in rows] == [True] * 10 + [False] * 4  # the oracle on the detected episodes is for the CSV only
+    own = rows[2]
+    assert own.top1[0] == pytest.approx(50.0) and own.share == [pytest.approx(100.0)] * 2 and len(own.top1) == len(own.top3) == 2  # seen and unseen of the one setting
+    assert rows[0].share is None and rows[6].share is None  # only the own-detection rows have a share of failures with an alarm
 
 
 # ---------------------------------------------------------------- the formatting
-def toy_blocks():
-    rows = [tables.ModeRow("Majority class", "baseline", [60.0, 30.0]), tables.ModeRow("Random", "baseline", [10.0, 10.0]),
-            tables.ModeRow("Ours (onset_pre), own detection", "detected", [55.0, 40.0]), tables.ModeRow("Ours (onset_pre), oracle onset", "oracle", [90.0, 80.0])]
-    return [tables.ModeBlock("Top-1 accuracy (%)", rows),
-            tables.ModeBlock("Failed episodes with an alarm (%)", [tables.ModeRow("Ours (onset_pre), own detection", "detected", [70.0, 65.0])], marked=False),
-            tables.ModeBlock("Hidden block", [tables.ModeRow("Hidden row", "oracle", [1.0, 2.0])], marked=False, in_latex=False)]
+def toy_rows():
+    return [tables.ModeRow("Most common", "baseline", [60.0, 30.0], [70.0, 50.0]), tables.ModeRow("Random", "baseline", [10.0, 10.0], [30.0, 30.0]),
+            tables.ModeRow("onset_pre", "detected", [55.0, 40.0], [80.0, 60.0], share=[70.0, 65.0]),
+            tables.ModeRow("onset_pre", "oracle", [90.0, 80.0], [95.0, 90.0]),
+            tables.ModeRow("hidden_row", "oracle_on_detected", [1.0, 2.0], [3.0, 4.0], in_latex=False)]
 
 
-def test_the_best_and_second_best_are_marked_among_the_deployable_rows_only_and_the_oracle_never():
-    tex = tables.mode_latex_table(toy_blocks(), ["LIBERO-X task"])
+def test_best_and_second_best_are_marked_among_the_baselines_and_own_detection_only_and_never_on_the_oracle():
+    tex = tables.mode_latex_table(toy_rows(), ["LIBERO-X task"])
     lines = tex.splitlines()
-    majority = next(line for line in lines if line.startswith("Majority class"))
-    detected = next(line for line in lines if line.startswith(r"\rowcolor{gray!15} Ours (onset\_pre), own detection") and "70.0" not in line)
-    oracle = next(line for line in lines if "oracle onset" in line)
-    assert r"\textbf{60.0}" in majority and r"\textit{55.0}" in detected and r"\textbf{40.0}" in detected  # seen: 60 > 55 > 10; unseen: 40 > 30 > 10
-    assert r"\textit{30.0}" in majority and "textbf" not in oracle and "textit" not in oracle  # the oracle's 90 and 80 are not marked
-    assert not majority.startswith(r"\rowcolor") and oracle.startswith(r"\rowcolor{gray!15}")  # our rows are shaded, the baselines are not
-    coverage = next(line for line in lines if "70.0" in line)
-    assert "textbf" not in coverage and "textit" not in coverage  # an unmarked block
-    assert "Hidden" not in tex and r"Top-1 accuracy (\%)" in tex and r"Failed episodes with an alarm (\%)" in tex
+    common = next(line for line in lines if line.startswith("Most common"))
+    own = next(line for line in lines if line.startswith(r"\rowcolor{gray!15} onset\_pre") and "55.0" in line)
+    oracle = next(line for line in lines if line.startswith(r"\rowcolor{gray!15} onset\_pre") and "90.0" in line)
+    # top-1 seen 60 > 55 > 10, top-1 unseen 40 > 30 > 10, top-3 seen 80 > 70 > 30, top-3 unseen 60 > 50 > 30
+    assert r"\textit{55.0}" in own and r"\textbf{40.0}" in own and r"\textbf{80.0}" in own and r"\textbf{60.0}" in own
+    assert r"\textbf{60.0}" in common and r"\textit{30.0}" in common and r"\textit{70.0}" in common and r"\textit{50.0}" in common
+    assert "textbf" not in oracle and "textit" not in oracle  # the oracle's 90, 80, 95, 90 are above the others and not marked
+    assert not common.startswith(r"\rowcolor") and "hidden" not in tex  # baselines unshaded; the hidden row is not in the LaTeX, escaped or not
 
 
-def test_the_mode_table_is_a_full_width_float_with_balanced_braces_and_rules_between_the_groups():
-    tex = tables.mode_latex_table(toy_blocks(), ["LIBERO-X task"])
-    order = [tex.index(s) for s in (r"\begin{table*}", r"\caption{", r"\label{tab:modes}", r"\resizebox{\textwidth}{!}{%", r"\begin{tabular}", r"\end{tabular}%", r"\end{table*}")]
-    assert order == sorted(order) and tex.count("{") == tex.count("}") and "10 modes" in tex and r"$\alpha = 0.2$" in tex
-    block = tex[tex.index("Majority class") : tex.index(r"Ours (onset\_pre), oracle onset")]
-    assert block.count(r"\midrule") == 2  # baselines | own detection | oracle
+def test_the_layout_is_compact_top_1_and_top_3_side_by_side_with_two_group_headings_and_booktabs_rules():
+    tex = tables.mode_latex_table(toy_rows(), ["LIBERO-X task"])
+    assert r"\begin{tabular}{lrrrr}" in tex  # a label column and 2 metrics x (seen, unseen)
+    assert r"\multicolumn{2}{c}{Top-1 accuracy (\%)}" in tex and r"\multicolumn{2}{c}{Top-3 accuracy (\%)}" in tex and r"\multicolumn{2}{c}{task}" in tex
+    assert "LIBERO-X task" not in tex.split(r"\begin{tabular}")[1]  # the header says task, the caption says LIBERO-X
+    assert r"\multicolumn{5}{l}{Ours, own detection (first alarm)}" in tex and r"\multicolumn{5}{l}{Ours, oracle onset (upper bound)}" in tex
+    assert tex.count(r"\toprule") == tex.count(r"\bottomrule") == 1 and tex.count(r"\midrule") == 3 and tex.count(r"\cmidrule") >= 4
+    assert tex.index("Most common") < tex.index("own detection") < tex.index("oracle onset (upper bound)")  # baselines, own detection, oracle
+    order = [tex.index(s) for s in (r"\begin{table*}", r"\caption{", r"\label{tab:modes}", r"\resizebox{0.67\textwidth}{!}{%", r"\begin{tabular}", r"\end{tabular}%", r"\end{table*}")]
+    assert order == sorted(order) and tex.count("{") == tex.count("}")
+    assert len([line for line in tex.splitlines() if line.startswith(("Most common", "Random", r"\rowcolor"))]) == 4  # a compact table: four rows here
 
 
-def test_the_csv_has_every_block_including_those_left_out_of_the_latex():
-    records = tables.mode_csv_rows(toy_blocks(), ["LIBERO-X task"])
-    assert {r["block"] for r in records} == {"Top-1 accuracy (%)", "Failed episodes with an alarm (%)", "Hidden block"}
-    assert records[0] == {"block": "Top-1 accuracy (%)", "method": "Majority class", "group": "baseline", "LIBERO-X task seen": 60.0, "LIBERO-X task unseen": 30.0}
-    assert tables.mode_csv_rows([tables.ModeBlock("b", [tables.ModeRow("r", "baseline", [None, 1.0])])], ["LIBERO-X task"])[0]["LIBERO-X task seen"] is None
+def test_the_caption_gets_the_range_of_the_share_of_failures_with_an_alarm_from_the_rows():
+    assert r"65 to 70\%" in tables.mode_caption(toy_rows()) and "COVERAGE" not in tables.mode_caption(toy_rows())
+    assert "see the CSV" in tables.mode_caption([tables.ModeRow("Random", "baseline", [10.0], [30.0])])
+    assert "10 modes" in tables.MODE_CAPTION and "upper bound" in tables.MODE_CAPTION
+
+
+def test_the_csv_has_every_row_including_the_hidden_one_with_a_column_per_metric_setting_and_set():
+    records = tables.mode_csv_rows(toy_rows(), ["LIBERO-X task"])
+    assert [r["method"] for r in records] == ["Most common", "Random", "onset_pre", "onset_pre", "hidden_row"] and records[4]["group"] == "oracle_on_detected"
+    assert records[0] == {"method": "Most common", "group": "baseline", "top-1 LIBERO-X task seen": 60.0, "top-1 LIBERO-X task unseen": 30.0,
+                          "top-3 LIBERO-X task seen": 70.0, "top-3 LIBERO-X task unseen": 50.0}  # no share column for a baseline
+    assert records[2]["alarm share LIBERO-X task seen"] == 70.0 and records[2]["top-3 LIBERO-X task unseen"] == 60.0
+    assert tables.mode_csv_rows([tables.ModeRow("r", "baseline", [None, 1.0], [2.0, None])], ["LIBERO-X task"])[0]["top-1 LIBERO-X task seen"] is None
+
+
+def test_write_csv_uses_the_columns_of_all_the_records_and_leaves_a_missing_one_empty(tmp_path):
+    cli_figures.write_csv(tmp_path / "x.csv", [{"a": 1, "b": 2}, {"a": 3, "c": 4}])
+    rows = list(csv.DictReader(open(tmp_path / "x.csv")))
+    assert list(rows[0]) == ["a", "b", "c"] and rows[0] == {"a": "1", "b": "2", "c": ""} and rows[1] == {"a": "3", "b": "", "c": "4"}
 
 
 # ---------------------------------------------------------------- the command
@@ -215,7 +232,7 @@ def test_the_command_writes_the_mode_table_when_the_runs_exist_and_says_so_when_
     out = tmp_path / "out"
     assert "wrote" in capsys.readouterr().out and (out / "table_modes.tex").exists()
     rows = list(csv.DictReader(open(out / "table_modes.csv")))
-    assert any(r["method"] == "Ours (onset_pre), own detection" and float(r["LIBERO-X task seen"]) == 50.0 for r in rows)
+    assert any(r["method"] == "onset_pre" and r["group"] == "detected" and float(r["top-1 LIBERO-X task seen"]) == 50.0 for r in rows)
     # no runs: the table is skipped with a message and the rest is still written
     monkeypatch.setattr(sys, "argv", ["figures", "--root", str(tmp_path / "empty"), "--out", str(tmp_path / "out2"), "--costs", str(tmp_path / "none")])
     (tmp_path / "empty").mkdir()

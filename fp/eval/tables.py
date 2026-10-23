@@ -116,61 +116,81 @@ def csv_rows(rows: list[Row], settings: list[str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------- the failure-mode table
-MODE_CAPTION = (r"Failure-mode prediction on LIBERO-X (10 modes): top-1 and top-3 accuracy in \%, the mean over the splits of each kind, and, for the "
-                r"detection rows, the share of failed episodes that get an alarm. The predicted mode is the one with the highest mean probability over the "
-                r"six steps before an anchor step and the anchor itself. Own detection: the anchor is the probe's first alarm (max-conformal, "
-                r"$\alpha = 0.2$), scored on the failures that have one. Oracle onset: the anchor is the true failure onset, an upper bound a deployed "
-                r"system cannot reach and not marked. Baselines: always the most common training mode(s), and a uniform guess among the training modes. "
-                r"Shaded rows are our probe (one architecture; the label variant named). Best in bold, second best in italics, among the rows other than the oracle.")
+# The mode table has 12 numeric columns against the main table's 15, so scaling it to the full text width would make its text larger than the main
+# table's. It is set at this fraction of the text width instead, the main table's scale (it fills the text width) applied to the mode table's own
+# natural width, so that both have the same text size. Measured with pdflatex at the normal font size in a two-column article: the natural
+# widths are 9.93 in (main table) and 6.65 in (this one), 6.65 / 9.93 = 0.67; see docs/FIGURES.md (the sizes need not be identical).
+MODE_TABLE_WIDTH = 0.67
+MODE_CAPTION = (r"Failure-mode prediction on LIBERO-X (10 modes): top-1 and top-3 accuracy in \%, the mean over the splits of each kind. "
+                r"Most common: always the most common training mode (top-3: the three most common); random: a uniform guess among the training "
+                r"modes. Shaded rows are our probe (one architecture), by label variant. The predicted mode is the one with the highest mean "
+                r"probability over the six steps before an anchor step and the anchor itself: the probe's first alarm (own detection, "
+                r"max-conformal at $\alpha = 0.2$, scored on the failures that have an alarm, COVERAGE of them) or the true failure onset (oracle "
+                r"onset, an upper bound a deployed system cannot reach, not marked). Best in bold, second best in italics, among the rows other "
+                r"than the oracle.")
 
 
 @dataclass(frozen=True)
 class ModeRow:
     label: str
-    group: str  # 'baseline', 'detected' (our probe at its own alarm) or 'oracle' (our probe at the true onset)
-    values: list[float | None]  # percent, in the order of ``columns``
+    group: str  # 'baseline', 'detected' (our probe at its own alarm), 'oracle' (at the true onset) or 'oracle_on_detected' (CSV only)
+    top1: list[float | None]  # percent, one per setting and set in the order of ``columns``
+    top3: list[float | None]
+    share: list[float | None] | None = None  # 'detected' rows: percent of the failed episodes that get an alarm, same order
+    in_latex: bool = True
 
 
-@dataclass(frozen=True)
-class ModeBlock:
-    title: str
-    rows: list[ModeRow]
-    marked: bool = True  # best and second best are marked among the rows that are not 'oracle'
-    in_latex: bool = True  # False: only in the CSV
+def mode_caption(rows: list[ModeRow]) -> str:
+    """``MODE_CAPTION`` with the range of the share of failures that get an alarm read from the rows."""
+    shares = [v for r in rows if r.share for v in r.share if v is not None]
+    coverage = rf"{min(shares):.0f} to {max(shares):.0f}\%" if shares else "see the CSV"
+    return MODE_CAPTION.replace("COVERAGE", coverage)
 
 
-def mode_latex_table(blocks: list[ModeBlock], settings: list[str], caption: str = MODE_CAPTION, label: str = "tab:modes",
+def mode_latex_table(rows: list[ModeRow], settings: list[str], caption: str | None = None, label: str = "tab:modes",
                      source: str = "python -m cli.figures") -> str:
-    """The failure-mode table as a full-width ``table*`` float (see ``latex_table``); only the blocks with ``in_latex``."""
-    n = len(columns(settings))
-    lines = [r"\begin{tabular}{l" + "r" * n + "}", r"\toprule",
-             " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{escape(s)}}}" for s in settings) + r" \\",
-             "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(len(settings))),
-             "Method & " + " & ".join(e.capitalize() for _ in settings for e in ("seen", "unseen")) + r" \\"]
-    for block in (b for b in blocks if b.in_latex):
-        lines += [r"\midrule", rf"\multicolumn{{{n + 1}}}{{l}}{{{escape(block.title)}}} \\"]
-        compared = [r for r in block.rows if r.group != "oracle"]
-        column_marks = [marks([r.values[i] for r in compared], 1, True) if block.marked else [None] * len(compared) for i in range(n)]
-        previous = None
-        for r in block.rows:
-            if previous is not None and r.group != previous:
-                lines.append(r"\midrule")
-            previous = r.group
-            index = compared.index(r) if r in compared else None
-            cells = [MISSING if v is None else style(number(v, 1), column_marks[i][index] if index is not None else None) for i, v in enumerate(r.values)]
-            lines.append(("" if r.group == "baseline" else r"\rowcolor{gray!15} ") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
+    """The failure-mode table as a ``table*`` float (see ``latex_table``): top-1 and top-3 side by side, one row per method, the baselines first,
+    then our probe at its own alarm and at the oracle onset under their own headings. Only the rows with ``in_latex``."""
+    m, n = len(settings), 2 * len(settings)  # settings; numeric columns per metric
+    shown = [r for r in rows if r.in_latex]
+    compared = [r for r in shown if r.group != "oracle"]  # best and second best are judged among these
+    marks_of = {metric: [marks([getattr(r, metric)[i] for r in compared], 1, True) for i in range(n)] for metric in ("top1", "top3")}
+    short = [escape(s.removeprefix("LIBERO-X ")) for s in settings]
+    lines = [r"\begin{tabular}{l" + "r" * (2 * n) + "}", r"\toprule",
+             rf" & \multicolumn{{{n}}}{{c}}{{Top-1 accuracy (\%)}} & \multicolumn{{{n}}}{{c}}{{Top-3 accuracy (\%)}} \\",
+             rf"\cmidrule(lr){{2-{1 + n}}}\cmidrule(lr){{{2 + n}-{1 + 2 * n}}}",
+             " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for _ in range(2) for s in short) + r" \\",
+             "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(2 * m)),
+             "Method & " + " & ".join(e.capitalize() for _ in range(2 * m) for e in ("seen", "unseen")) + r" \\"]
+    headings = {"detected": "Ours, own detection (first alarm)", "oracle": "Ours, oracle onset (upper bound)"}
+    previous = None
+    for r in shown:
+        if r.group != previous:
+            lines.append(r"\midrule")
+            if r.group in headings:
+                lines.append(rf"\multicolumn{{{1 + 2 * n}}}{{l}}{{{headings[r.group]}}} \\")
+        previous = r.group
+        index = compared.index(r) if r in compared else None
+
+        def cell(value, metric, i):
+            return MISSING if value is None else style(number(value, 1), marks_of[metric][i][index] if index is not None else None)
+
+        cells = [cell(v, "top1", i) for i, v in enumerate(r.top1)] + [cell(v, "top3", i) for i, v in enumerate(r.top3)]
+        lines.append(("" if r.group == "baseline" else r"\rowcolor{gray!15} ") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
-                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
-                      r"\resizebox{\textwidth}{!}{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or mode_caption(rows)}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
+                      rf"\resizebox{{{MODE_TABLE_WIDTH}\textwidth}}{{!}}{{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
 
 
-def mode_csv_rows(blocks: list[ModeBlock], settings: list[str]) -> list[dict]:
-    """Every block, also those left out of the LaTeX: one dict per row, a column per setting and set."""
+def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:
+    """Every row, also those left out of the LaTeX: a column per metric, setting and set."""
     out = []
-    for block in blocks:
-        for r in block.rows:
-            row = {"block": block.title, "method": r.label, "group": r.group}
-            row.update({f"{s} {e}": None if v is None else round(v, 3) for (s, e), v in zip(columns(settings), r.values)})
-            out.append(row)
+    for r in rows:
+        record = {"method": r.label, "group": r.group}
+        for metric, name in (("top1", "top-1"), ("top3", "top-3"), ("share", "alarm share")):
+            values = getattr(r, metric)
+            if values is not None:
+                record.update({f"{name} {s} {e}": None if v is None else round(v, 3) for (s, e), v in zip(columns(settings), values)})
+        out.append(record)
     return out

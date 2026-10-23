@@ -26,7 +26,7 @@ from ..metrics.outcomes import alarm_step
 from ..results import read_scores, run_dir
 from .figures import ENTRIES, SETTINGS, Entry
 from .select_config import group_of
-from .tables import ModeBlock, ModeRow
+from .tables import ModeRow
 
 ALPHA = 0.2  # the operating point of own detection: at most 20% false alarms on exchangeable successes
 TOP_K = (1, 3)
@@ -112,26 +112,20 @@ def mode_results(inputs, root, entries: list[Entry] | None = None, settings=LIBE
     return {key: 100 * float(np.nanmean(v)) for key, v in per_split.items() if not np.all(np.isnan(v))}
 
 
-def mode_blocks(results: Mapping[tuple, float], entries: list[Entry] | None = None, settings=LIBEROX) -> list[ModeBlock]:
-    """The blocks of the failure-mode table from ``mode_results``: top-1 and top-3 accuracy (baselines, then our probe at its own alarm, then at the
-    oracle onset), the share of failures that get an alarm, and, for the CSV only, the oracle rule on the failures that have an alarm."""
+def mode_rows(results: Mapping[tuple, float], entries: list[Entry] | None = None, settings=LIBEROX) -> list[ModeRow]:
+    """The rows of the failure-mode table from ``mode_results``: the baselines, then our probe, one row per label variant, at its own alarm and at
+    the oracle onset, and (for the CSV only) the oracle rule on the failures that have an alarm."""
     entries = [e for e in ENTRIES if e.variant] if entries is None else entries
     columns = [(s.label, e) for s in settings for e in SETS]
 
     def values(rule: str, label: str | None, metric: str) -> list[float | None]:
         return [results.get((rule, label, metric, s, e)) for s, e in columns]
 
-    blocks = []
-    for k in TOP_K:
-        metric = f"top{k}"
-        rows = [ModeRow("Majority class" if k == 1 else f"{k} most common modes", "baseline", values("majority", None, metric)),
-                ModeRow("Random", "baseline", values("random", None, metric))]
-        rows += [ModeRow(f"{e.label}, own detection", "detected", values("detected", e.label, metric)) for e in entries]
-        rows += [ModeRow(f"{e.label}, oracle onset", "oracle", values("oracle", e.label, metric)) for e in entries]
-        blocks.append(ModeBlock(f"Top-{k} accuracy (%)", rows))
-    blocks.append(ModeBlock("Failed episodes with an alarm (%)", [ModeRow(f"{e.label}, own detection", "detected", values("detected", e.label, "share")) for e in entries],
-                            marked=False))
-    for k in TOP_K:
-        blocks.append(ModeBlock(f"Top-{k} accuracy (%), oracle onset on the failures that have an alarm",
-                                [ModeRow(f"{e.label}, oracle onset", "oracle", values("oracle_on_detected", e.label, f"top{k}")) for e in entries], marked=False, in_latex=False))
-    return blocks
+    rows = [ModeRow("Most common", "baseline", values("majority", None, "top1"), values("majority", None, "top3")),
+            ModeRow("Random", "baseline", values("random", None, "top1"), values("random", None, "top3"))]
+    for rule in ("detected", "oracle"):
+        rows += [ModeRow(e.variant, rule, values(rule, e.label, "top1"), values(rule, e.label, "top3"),
+                         share=values("detected", e.label, "share") if rule == "detected" else None) for e in entries]
+    rows += [ModeRow(e.variant, "oracle_on_detected", values("oracle_on_detected", e.label, "top1"), values("oracle_on_detected", e.label, "top3"), in_latex=False)
+             for e in entries]
+    return rows

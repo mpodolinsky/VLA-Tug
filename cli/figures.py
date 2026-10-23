@@ -48,8 +48,9 @@ def table_rows(rows: list[dict], chosen: dict, costs: dict) -> list[tables.Row]:
 
 
 def write_csv(path: Path, records: list[dict]) -> None:
+    """One CSV row per record; the columns are those of all records in order of first appearance (a record without a column leaves it empty)."""
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(records[0]))
+        writer = csv.DictWriter(f, fieldnames=list(dict.fromkeys(key for record in records for key in record)))
         writer.writeheader()
         writer.writerows(records)
 
@@ -97,13 +98,13 @@ def write_main_table(args, rows: list[dict], chosen: dict) -> None:
 def write_mode_table(args) -> None:
     """The failure-mode table of LIBERO-X (fp/eval/modes.py); skipped with a message when its probe runs or the data are not there."""
     try:
-        blocks = modes.mode_blocks(modes.mode_results(load_inputs("liberox_groot"), args.root))
+        rows = modes.mode_rows(modes.mode_results(load_inputs("liberox_groot"), args.root))
     except (FileNotFoundError, KeyError) as error:
         print(f"no failure-mode table: {error}")
         return
     labels = [s.label for s in modes.LIBEROX]
-    (args.out / "table_modes.tex").write_text(tables.mode_latex_table(blocks, labels))
-    write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(blocks, labels))
+    (args.out / "table_modes.tex").write_text(tables.mode_latex_table(rows, labels))
+    write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(rows, labels))
     print("wrote", args.out / "table_modes.tex", "and table_modes.csv")
 
 
