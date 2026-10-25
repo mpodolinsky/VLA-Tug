@@ -108,7 +108,7 @@ def write_ablation_table(args, rows: list[dict]) -> None:
     except ValueError as error:
         print(f"no ablation table: {error}")
         return
-    labels = [s.label for s in ablations.LIBEROX]
+    labels = [s.label for s in ablations.ABLATION_SETTINGS]
     (args.out / "table_ablations.tex").write_text(tables.ablation_latex_table(blocks, labels))
     write_csv(args.out / "table_ablations.csv", tables.ablation_csv_rows(blocks, labels))
     print("wrote", args.out / "table_ablations.tex", "and table_ablations.csv")

@@ -304,16 +304,18 @@ def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:
 
 
 # ---------------------------------------------------------------- the ablation table
-ABLATION_CAPTION = (r"Ablations of our probe on LIBERO-X: the area under the curve of TPR early against FPR up to 40\% (in \%, higher is better), the mean "
-                    r"over the splits of each kind of held-out set and, after $\pm$, the standard deviation; in brackets the change relative to our probe "
+ABLATION_CAPTION = (r"Ablations of our probe in the simulated settings (LIBERO-10 with $\pi_{0.5}$ and with GR00T, and the three kinds of LIBERO-X held-out set): "
+                    r"the area under the curve of TPR early against FPR up to 40\% (in \%, higher is better), the mean "
+                    r"over the splits of each setting and, after $\pm$, the standard deviation; in brackets the change relative to our probe "
                     r"(shaded, the same model in both blocks). SPLITS Seen: held-out episodes of tasks the probe trained on; unseen: held-out tasks, "
                     r"signatures or skills. Heads: the architecture (LSTM trunk, no attention) with the pre-onset label, so the rows differ only in the "
                     r"mode head and the CLIP head. Training strategy: the positive label of our architecture: the whole pre-onset trajectory "
                     r"(\texttt{onset\_pre}), every step of the failed rollout (\texttt{onset\_traj}), the window before the onset only (\texttt{onset}), "
                     r"or the window and everything after it (\texttt{onset\_post}). Best in bold, second best in italics, within each block.")
-# The table is set at this fraction of the text width, its natural width relative to the main table's (559.9 pt against 785.7 pt, measured with
-# pdflatex in a two-column article as for the mode table, see above), so that its text has about the size of the main table's.
-ABLATION_TABLE_WIDTH = 0.71
+# The table is set at the full text width. Its natural width (863.5 pt with the five settings, measured with pdflatex in a two-column article as for the mode
+# table, see above) is larger than the main table's (785.7 pt), so its text is about 9% smaller than the main table's (it would be 559.9 pt, and 0.71 of the
+# text width to match, with the three LIBERO-X settings alone).
+ABLATION_TABLE_WIDTH = 1.0
 
 
 @dataclass(frozen=True)
@@ -345,15 +347,15 @@ def signed_percent(value: float) -> str:
 
 def ablation_caption(blocks: list[AblationBlock], settings: list[str]) -> str:
     """``ABLATION_CAPTION`` with the number of splits of each setting read from the first row."""
-    counts = [f"{s.removeprefix('LIBERO-X ')} {c.n}" for s, c in zip(settings, blocks[0].rows[0].cells[::2]) if c is not None]
+    counts = [f"{escape(s)} {c.n}" for s, c in zip(settings, blocks[0].rows[0].cells[::2]) if c is not None]
     return ABLATION_CAPTION.replace("SPLITS", f"Number of splits: {', '.join(counts)}.")
 
 
 def ablation_tabular(blocks: list[AblationBlock], settings: list[str]) -> str:
     """The bare ``tabular``: one block of rows per ablation under its heading, the baseline (shaded) first, best and second best marked per block."""
     m, n = len(settings), 2 * len(settings)
-    short = [escape(s.removeprefix("LIBERO-X ")) for s in settings]
-    lines = [r"\begin{tabular}{l" + "r" * n + "}", r"\toprule", " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for s in short) + r" \\",
+    names = [escape(s) for s in settings]
+    lines = [r"\begin{tabular}{l" + "r" * n + "}", r"\toprule", " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for s in names) + r" \\",
              "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(m)), " & " + " & ".join(e.capitalize() for _ in range(m) for e in ("seen", "unseen")) + r" \\"]
     for block in blocks:
         lines += [r"\midrule", rf"\multicolumn{{{1 + n}}}{{l}}{{{escape(block.title)}}} \\"]
