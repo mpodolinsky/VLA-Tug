@@ -86,7 +86,7 @@ ENTRIES = (
     Entry("PCA-KMeans", "distance", "dotted", families=("pca_kmeans",)),
 )
 TABLE_LABELS = ("SAFE-LSTM", "SAFE-MLP", "STAC", "ActProbe", "FailureSpot", "Mahalanobis", "Euclidean", "PCA-KMeans",  # the table's rows, top to bottom:
-                "Ours (onset_traj)", "Ours (onset_pre)")  # the baselines, then ours at the bottom
+                "Ours (onset_pre)")  # the baselines, then ours at the bottom (the other label variants are in the ablation table)
 COMPACT_LABELS = ("Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot")  # the methods of the compact curve figures
 COMPACT_SCALE = 0.5  # their height relative to the full figures' (their width is the same; same font sizes, so the text is relatively larger)
 

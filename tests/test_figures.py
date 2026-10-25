@@ -112,12 +112,13 @@ def test_the_std_table_has_its_own_label_and_says_what_the_plus_minus_is_and_a_c
 def test_the_table_lists_the_baselines_first_and_ours_at_the_bottom_set_off_by_a_rule():
     entries = {e.label: e for e in figures.ENTRIES}
     kinds = [entries[label].kind == "ours" for label in figures.TABLE_LABELS]
-    assert kinds == [False] * 8 + [True, True] and figures.TABLE_LABELS[-1] == "Ours (onset_pre)"  # the headline variant is the last row
+    assert kinds == [False] * 8 + [True] and figures.TABLE_LABELS[-1] == "Ours (onset_pre)"  # only the headline variant, as the last row (the others: the ablation table)
+    assert "Ours (onset_traj)" not in figures.TABLE_LABELS
     rows = [tables.Row(label, entries[label].kind == "ours", "max_conformal", [(50.0, 1.0)] * 4, [1.0, 2.0, 0.5]) for label in figures.TABLE_LABELS]
     tex = tables.latex_table(rows, SETTINGS)
     lines = [line for line in tex.splitlines() if line.startswith(("SAFE-LSTM", r"\rowcolor", r"\midrule"))]
     assert lines[0] == r"\midrule" and lines[1].startswith("SAFE-LSTM") and lines[2] == r"\midrule" and all(line.startswith(r"\rowcolor") for line in lines[3:])
-    assert tex.index("PCA-KMeans") < tex.index(r"\rowcolor") < tex.index(r"Ours (onset\_traj)") < tex.index(r"Ours (onset\_pre)")
+    assert tex.index("PCA-KMeans") < tex.index(r"\rowcolor") < tex.index(r"Ours (onset\_pre)") and r"onset\_traj" not in tex.split(r"\begin{tabular}")[1]
 
 
 def test_the_csv_has_every_mean_and_std_and_the_costs():

@@ -84,10 +84,10 @@ def tabular(rows: list[Row], settings: list[str], with_std: bool = False) -> str
 
 CAPTION = (r"Early failure detection on seen and unseen tasks. Each cell is the area under the curve of TPR early against FPR up to 40\% "
            r"(in \%, higher is better), the mean over the splits of the setting; seen: held-out episodes of tasks the method trained on, "
-           r"unseen: held-out tasks. Cal.: calibrator (MC max-conformal, FC functional conformal). Shaded rows are our probe, one architecture "
-           r"in every setting, trained with the pre-onset trajectory (\texttt{onset\_pre}) or the whole failed trajectory (\texttt{onset\_traj}) "
-           r"as the positive label; SAFE-LSTM and SAFE-MLP use one configuration on the three LIBERO-X splits; every other method uses the "
-           r"configuration with the best validation area. Cost, measured on LIBERO-X (lower is better): seconds to fit, megabytes kept to score "
+           r"unseen: held-out tasks. Cal.: calibrator (MC max-conformal, FC functional conformal). The shaded row is our probe, trained with the "
+           r"pre-onset trajectory (\texttt{onset\_pre}) as the positive label (the other label variants are in the ablation table); it uses one "
+           r"architecture in every setting. SAFE-LSTM and SAFE-MLP use one configuration on the three LIBERO-X splits and their best on validation "
+           r"elsewhere; every other baseline uses the configuration with the best validation area in each setting. Cost, measured on LIBERO-X (lower is better): seconds to fit, megabytes kept to score "
            r"a new episode, milliseconds per policy step. Real robot: GR00T on eight tasks, one task held out at a time, the mean over five seeds "
            r"(40 splits; the configurations are those chosen on seed 0); STAC, ActProbe and FailureSpot need the planned action chunks, which "
            r"were not saved there. Best in bold, second best in italics.")
