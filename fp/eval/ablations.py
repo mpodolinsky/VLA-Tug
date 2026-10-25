@@ -16,7 +16,7 @@ from ..calibration.protocol import parse_probe_name
 from . import figures
 from .tables import AblationBlock, AblationCell, AblationRow
 
-ABLATION_SETTINGS = tuple(s for s in figures.SETTINGS if s.dataset != "real8_groot")  # the five simulated settings, in the main table's order
+ABLATION_SETTINGS = figures.SIMULATED_SETTINGS  # the five simulated settings, in the main table's order
 BASELINE_VARIANT = "onset_pre"  # the label of our probe
 HEADS = ("modes_clip", "plain", "modes", "clip")  # ours first
 HEAD_LABELS = {"modes_clip": "Modes + CLIP (ours)", "plain": "No head", "modes": "Modes only", "clip": "CLIP only"}

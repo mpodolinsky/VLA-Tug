@@ -509,14 +509,22 @@ def test_a_panel_can_be_made_wider_so_that_fewer_panels_keep_the_width_of_a_full
     matplotlib.pyplot.close("all")
 
 
-def test_a_scaled_figure_keeps_the_ratio_and_the_font_sizes_so_its_text_is_relatively_larger():
+def test_the_height_scale_shrinks_the_height_and_not_the_width_or_the_font_sizes():
     entries = list(figures.ENTRIES[:5])
     args = (one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y")
-    full, half = plots.curves_figure(*args), plots.curves_figure(*args, scale=0.5)
-    (fw, fh), (hw, hh) = full.get_size_inches(), half.get_size_inches()
-    assert (hw, hh) == (pytest.approx(fw / 2), pytest.approx(fh / 2)) and hh / hw == pytest.approx(fh / fw)  # half the size, the same height to width ratio
-    assert half.axes[0].title.get_fontsize() == full.axes[0].title.get_fontsize() and half.axes[0].xaxis.label.get_fontsize() == full.axes[0].xaxis.label.get_fontsize()
-    assert full.legends[0].get_texts()[0].get_fontsize() == 9 and half.legends[0].get_texts()[0].get_fontsize() == 8.5  # only the legend is set a little smaller, to fit one row
+    full, flat = plots.curves_figure(*args), plots.curves_figure(*args, height_scale=0.5)
+    (fw, fh), (lw, lh) = full.get_size_inches(), flat.get_size_inches()
+    assert lw == pytest.approx(fw) and lh == pytest.approx(fh / 2)  # the same width at half the height
+    assert flat.axes[0].title.get_fontsize() == full.axes[0].title.get_fontsize() and flat.axes[0].xaxis.label.get_fontsize() == full.axes[0].xaxis.label.get_fontsize()
+    matplotlib.pyplot.close("all")
+
+
+def test_the_legend_is_set_closer_together_only_in_a_figure_too_narrow_for_it():
+    entries = list(figures.ENTRIES[:5])
+    narrow = plots.curves_figure(one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y", legend_rows=1)  # 5.0 in
+    wide = plots.curves_figure(one_row(figures.SETTINGS, entries), list(figures.SETTINGS), entries, "y", legend_rows=1)  # 15.0 in
+    assert narrow.get_size_inches()[0] < plots.NARROW_FIGURE <= wide.get_size_inches()[0]
+    assert narrow.legends[0].get_texts()[0].get_fontsize() == 8.5 and wide.legends[0].get_texts()[0].get_fontsize() == 9
     matplotlib.pyplot.close("all")
 
 
@@ -528,7 +536,7 @@ def test_the_legend_has_two_rows_unless_asked_for_one():
     matplotlib.pyplot.close("all")
 
 
-def test_the_compact_curve_figures_are_liberox_with_the_compact_methods_at_the_width_of_the_full_figures(tmp_path, monkeypatch, capsys):
+def test_the_compact_curve_figures_are_the_simulated_settings_with_the_compact_methods_at_the_width_of_the_full_figures(tmp_path, monkeypatch, capsys):
     root = tmp_path / "results"
     for split in ("task_seed0", "task_seed1"):
         write_run(root, "liberox_groot", split, "stac__mmd3_step", 20.0, 0.4)
@@ -539,29 +547,41 @@ def test_the_compact_curve_figures_are_liberox_with_the_compact_methods_at_the_w
     assert ("LIBERO-X task", "Ours (onset_traj)") in chosen
     calls, original = [], plots.curves_figure
 
-    def spy(panels, settings, entries, ylabel, panel_width=plots.PANEL_WIDTH, legend_rows=2, scale=1.0):
-        fig = original(panels, settings, entries, ylabel, panel_width, legend_rows, scale)
-        calls.append((panels, settings, entries, panel_width, tuple(fig.get_size_inches()), fig.legends[0]._ncols))
+    def spy(panels, settings, entries, ylabel, panel_width=plots.PANEL_WIDTH, legend_rows=2, height_scale=1.0):
+        fig = original(panels, settings, entries, ylabel, panel_width, legend_rows, height_scale)
+        calls.append((panels, settings, entries, panel_width, tuple(fig.get_size_inches()), fig.legends[0]._ncols, fig.legends[0].get_texts()[0].get_fontsize()))
         return fig
 
     monkeypatch.setattr(plots, "curves_figure", spy)
     args = type("Args", (), {"out": tmp_path / "out", "root": root})
     cli_figures.write_compact_curves(args, rows, chosen)
     assert len(calls) == 2  # TPR early and on-time TPR
-    panels, settings, entries, panel_width, (width, height), legend_columns = calls[0]
-    assert [s.label for s in settings] == ["LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill"] and [r[0] for r in panels] == ["Seen tasks", "Unseen tasks"]
+    panels, settings, entries, panel_width, (width, height), legend_columns, legend_font = calls[0]
+    assert [s.label for s in settings] == ["LIBERO-10 π0.5", "LIBERO-10 GR00T", "LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill"]  # not the real robot
+    assert [r[0] for r in panels] == ["Seen tasks", "Unseen tasks"] and settings == list(figures.SIMULATED_SETTINGS)
     assert [e.label for e in entries] == ["Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot"]
-    assert panel_width == pytest.approx(2 * plots.PANEL_WIDTH)  # twice as wide panels, three instead of six
-    assert width == pytest.approx(figures.COMPACT_SCALE * plots.PANEL_WIDTH * len(figures.SETTINGS)) and figures.COMPACT_SCALE == 0.5  # half the width of the six-panel figure
-    assert height / width == pytest.approx(2 * plots.PANEL_HEIGHT / (plots.PANEL_WIDTH * len(figures.SETTINGS)))  # and its height to width ratio
+    assert panel_width == pytest.approx(1.2 * plots.PANEL_WIDTH)  # wider panels, five instead of six
+    assert width == pytest.approx(plots.PANEL_WIDTH * len(figures.SETTINGS)) and width == pytest.approx(15.0)  # the width of the six-panel figure
+    assert figures.COMPACT_SCALE == 0.5 and height == pytest.approx(figures.COMPACT_SCALE * 2 * plots.PANEL_HEIGHT) and height == pytest.approx(2.9)  # half its height
+    assert legend_font == 9  # the figure is wide enough for the usual legend spacing
     assert legend_columns == 2  # a single legend row: one column per method drawn (STAC and ActProbe here; two rows would make it one column)
     assert {entry for _, entry in panels[0][1]} == {"STAC", "ActProbe"}  # our onset_traj probe has a curve in the data but is not drawn
-    for stem in ("curves_tpr_early_liberox", "curves_tpr_on_time_liberox"):
+    for stem in ("curves_tpr_early_compact", "curves_tpr_on_time_compact"):
         assert (tmp_path / "out" / f"{stem}.png").exists() and (tmp_path / "out" / f"{stem}.pdf").exists()
 
 
-def test_the_compact_curve_figures_are_skipped_with_a_message_when_there_is_no_liberox_curve(results, tmp_path, capsys):
+def test_the_compact_curve_figures_are_skipped_with_a_message_when_there_is_no_simulated_curve(tmp_path, capsys):
+    (tmp_path / "empty").mkdir()
+    rows = collect_rows(tmp_path / "empty")
+    chosen, _ = figures.choose_all(rows)
+    cli_figures.write_compact_curves(type("Args", (), {"out": tmp_path / "out", "root": tmp_path / "empty"}), rows, chosen)
+    assert "no curves of the simulated settings" in capsys.readouterr().out and not (tmp_path / "out").exists()
+
+
+def test_the_compact_curve_figures_also_cover_libero10_and_not_the_real_robot(results, tmp_path):
+    """The fixture has LIBERO-10 runs only (STAC, ActProbe, SAFE-LSTM): the compact figures are written with curves for those panels."""
     rows = collect_rows(results)
     chosen, _ = figures.choose_all(rows)
+    assert ("LIBERO-10 GR00T", "STAC") in chosen
     cli_figures.write_compact_curves(type("Args", (), {"out": tmp_path / "out", "root": results}), rows, chosen)
-    assert "no LIBERO-X curves" in capsys.readouterr().out and not (tmp_path / "out").exists()
+    assert (tmp_path / "out" / "curves_tpr_early_compact.png").exists()

@@ -51,6 +51,8 @@ SETTINGS = (  # the order of the panels and of the table's columns
     # the configurations are chosen on seed 0 and averaged over the 40 splits; no action-based baselines (no planned chunks)
 )
 
+SIMULATED_SETTINGS = tuple(s for s in SETTINGS if s.dataset != "real8_groot")  # LIBERO-10 with pi0.5 and with GR00T, the three kinds of LIBERO-X split
+
 
 @dataclass(frozen=True)
 class Entry:
@@ -85,8 +87,8 @@ ENTRIES = (
 )
 TABLE_LABELS = ("SAFE-LSTM", "SAFE-MLP", "STAC", "ActProbe", "FailureSpot", "Mahalanobis", "Euclidean", "PCA-KMeans",  # the table's rows, top to bottom:
                 "Ours (onset_traj)", "Ours (onset_pre)")  # the baselines, then ours at the bottom
-COMPACT_LABELS = ("Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot")  # the methods of the compact LIBERO-X curve figures
-COMPACT_SCALE = 0.5  # their size relative to the full figures' (same height to width ratio, same font sizes: the text is relatively larger)
+COMPACT_LABELS = ("Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot")  # the methods of the compact curve figures
+COMPACT_SCALE = 0.5  # their height relative to the full figures' (their width is the same; same font sizes, so the text is relatively larger)
 
 
 def require_runs(rows: list[dict], setting: Setting, method: str) -> str:
