@@ -6,7 +6,7 @@ were standardised with exactly the training episodes it is given.
 fit(train_keys, val_keys):
     items under the label variant -> loss context (class weights, and for the semantic head the PCA target space of the training phrases)
     -> train with ``loop.fit`` on the full loss, keep the epoch with the lowest validation score term (the weighted BCE alone, so the
-    mode and CLIP heads never choose the epoch). Every term is reported per epoch in ``result.train`` / ``result.val``.
+    mode and CLIP heads never choose the epoch; with ``lam_score`` 0 the score is not trained and the validation mode term chooses). Every term is reported per epoch in ``result.train`` / ``result.val``.
 outputs(keys): the output of every head at every step of the full rollout (not cut at the variant's cut: the probe is causal, so the steps
 before the cut get the same value either way). score(keys): only the failure probability, the sigmoid of the score logit.
 save(path) / load(path): weights, feature statistics and configuration in one file.
@@ -32,9 +32,11 @@ from .standardised import StandardisedFeatures
 class OursScorer(Scorer):
     def __init__(self, cfg: ProbeConfig, label_variant: str, episodes: Mapping[str, Episode], features: StandardisedFeatures,
                  targets: Targets, window: int, train_cfg: TrainConfig | None = None, device: str | None = None, lam_mode: float = 1.0,
-                 lam_clip: float = 1.0):
+                 lam_clip: float = 1.0, lam_score: float = 1.0):
         self.cfg, self.label_variant, self.window = cfg, label_variant, window
-        self.lam_mode, self.lam_clip = lam_mode, lam_clip  # the weights of the mode and CLIP terms in the loss (the score term has 1)
+        self.lam_mode, self.lam_clip, self.lam_score = lam_mode, lam_clip, lam_score  # the weights of the mode, CLIP and score terms in the loss
+        if lam_score == 0 and not cfg.modes:
+            raise ValueError("a probe trained without the score term needs a mode head to choose its epoch on")
         self.episodes, self.features, self.targets = episodes, features, targets
         self.train_cfg = train_cfg or TrainConfig(lr=default_lr(cfg.trunk))
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
@@ -57,7 +59,7 @@ class OursScorer(Scorer):
         if self.cfg.clip:  # the target space has the width of the semantic head
             space = fit_semantic_space(self.targets.embeddings, np.concatenate([it.phrase.numpy() for it in train]), dim=self.cfg.clip_dim)
         self.space = space
-        ctx = make_context(train, self.cfg, space, self.device, self.lam_mode, self.lam_clip)
+        ctx = make_context(train, self.cfg, space, self.device, self.lam_mode, self.lam_clip, self.lam_score)
         torch.manual_seed(self.train_cfg.seed)
         self.model = Probe(self.cfg).to(self.device)
 
@@ -66,7 +68,8 @@ class OursScorer(Scorer):
             terms = loss_terms(model(batch.x), batch, ctx, self.cfg)
             return Step(total_loss(terms, ctx), {name: (float(num), float(den)) for name, (num, den) in terms.items()})
 
-        self.result = fit(self.model, train, val, step_fn, self.train_cfg, select="score")  # early stopping follows the score term only
+        select = "score" if self.lam_score > 0 else "mode"  # early stopping follows the score term only; a probe without it follows its mode term
+        self.result = fit(self.model, train, val, step_fn, self.train_cfg, select=select)
 
     @torch.no_grad()
     def outputs(self, keys: list[str], batch: int = 32, heads: bool = True) -> dict[str, dict[str, np.ndarray]]:

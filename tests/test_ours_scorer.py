@@ -215,15 +215,32 @@ def same(a, b):
     return all(torch.equal(x, y) for x, y in zip(a.state_dict().values(), b.state_dict().values()))
 
 
-def test_the_weights_of_the_mode_and_clip_terms_reach_the_loss(data, monkeypatch):
+def test_the_weights_of_the_mode_clip_and_score_terms_reach_the_loss(data, monkeypatch):
     from fp.train import ours
 
     seen = []
     original = ours.make_context
-    monkeypatch.setattr(ours, "make_context", lambda *a, **k: seen.append(a[4:] or (k.get("lam_mode"), k.get("lam_clip"))) or original(*a, **k))
-    fit_with(data, lam_mode=0.25, lam_clip=0.5)
+    monkeypatch.setattr(ours, "make_context", lambda *a, **k: seen.append(a[4:]) or original(*a, **k))
+    fit_with(data, lam_mode=0.25, lam_clip=0.5, lam_score=2.0)
     fit_with(data)
-    assert seen == [(0.25, 0.5), (1.0, 1.0)]  # the default is the earlier behaviour: both terms at 1
+    assert seen == [(0.25, 0.5, 2.0), (1.0, 1.0, 1.0)]  # the default is the earlier behaviour: all three terms at 1
+
+
+def test_with_the_score_weight_zero_the_score_head_stays_untrained_and_the_epoch_follows_the_validation_mode_term(data):
+    reference = untrained_heads()
+    s = fit_with(data, lam_score=0.0)
+    assert same(s.model.score, reference.score)  # no gradient reaches the score head
+    assert not same(s.model.mode, reference.mode) and not same(s.model.trunk, reference.trunk)  # the mode term trains the head and the trunk
+    assert s.result.best_epoch == int(np.argmin(s.result.val["mode"])) and len(s.result.val["score"]) == len(s.result.val["mode"])  # the score is still reported
+    default = fit_with(data)
+    assert default.result.best_epoch == int(np.argmin(default.result.val["score"]))  # with the score term the selection is unchanged
+
+
+def test_a_probe_without_a_mode_head_cannot_be_trained_without_the_score_term(data):
+    with pytest.raises(ValueError, match="mode head"):
+        scorer(data, cfg(), lam_score=0.0)
+    with pytest.raises(ValueError, match="mode head"):
+        scorer(data, cfg(clip=True), lam_score=0.0)
 
 
 def test_a_term_with_weight_zero_leaves_its_head_untrained_while_the_other_head_and_the_trunk_learn(data):

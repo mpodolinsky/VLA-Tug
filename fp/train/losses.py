@@ -32,10 +32,11 @@ class LossContext:
     bank_index: torch.Tensor | None  # (P,) bank position of each phrase, -1 outside the training split
     lam_mode: float = 1.0
     lam_clip: float = 1.0
+    lam_score: float = 1.0  # 0 trains the heads without the score term (a mode-only probe, the ablation of what the score term adds)
 
 
 def make_context(train: list[Item], cfg: ProbeConfig, space: SemanticSpace | None, device: str | torch.device = "cpu",
-                 lam_mode: float = 1.0, lam_clip: float = 1.0) -> LossContext:
+                 lam_mode: float = 1.0, lam_clip: float = 1.0, lam_score: float = 1.0) -> LossContext:
     y = torch.cat([it.y for it in train])
     if y.sum() == 0 or y.sum() == len(y):
         raise ValueError("the training steps need both positive and negative labels")
@@ -50,7 +51,7 @@ def make_context(train: list[Item], cfg: ProbeConfig, space: SemanticSpace | Non
     bank = bank_index = None
     if cfg.clip:
         bank, bank_index = torch.from_numpy(space.bank).to(device), torch.from_numpy(space.bank_index).to(device)
-    return LossContext(((1 - y).sum() / y.sum()).to(device), mode_weight, bank, bank_index, lam_mode, lam_clip)
+    return LossContext(((1 - y).sum() / y.sum()).to(device), mode_weight, bank, bank_index, lam_mode, lam_clip, lam_score)
 
 
 Terms = dict[str, tuple[torch.Tensor, torch.Tensor]]  # term name -> (numerator, denominator); the term's mean is numerator / denominator
@@ -77,8 +78,8 @@ def loss_terms(out: dict[str, torch.Tensor], batch: Batch, ctx: LossContext, cfg
 
 
 def total_loss(terms: Terms, ctx: LossContext) -> torch.Tensor:
-    """The training loss of one batch: each term's mean over its own eligible steps, weighted by its lambda (score 1)."""
-    weight = {"score": 1.0, "mode": ctx.lam_mode, "clip": ctx.lam_clip}
+    """The training loss of one batch: each term's mean over its own eligible steps, weighted by its lambda (score 1 unless ``lam_score`` says otherwise)."""
+    weight = {"score": ctx.lam_score, "mode": ctx.lam_mode, "clip": ctx.lam_clip}
     return sum(weight[name] * num / den for name, (num, den) in terms.items() if den > 0)
 
 

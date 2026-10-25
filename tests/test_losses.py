@@ -75,6 +75,18 @@ def test_the_training_loss_is_the_sum_of_the_term_means_weighted_by_lambda():
     assert float(probe_loss(out, batch, ctx, c)) == pytest.approx(float(total_loss(loss_terms(out, batch, ctx, c), ctx)))
 
 
+def test_the_score_weight_lam_score_scales_the_score_term_and_zero_leaves_only_the_heads():
+    train = [item([0, 1, 1], mode=4, phrase=[0, 1, 2]), item([0, 0, 0, 1])]
+    c = cfg(modes=True, clip=True)
+    batch = collate(train)
+    out = outputs(batch, modes=True, clip=torch.ones(DIM))
+    for lam in (1.0, 0.5, 0.0):
+        ctx = make_context(train, c, space(), "cpu", lam_mode=0.5, lam_clip=2.0, lam_score=lam)
+        t = {name: float(num / den) for name, (num, den) in loss_terms(out, batch, ctx, c).items()}
+        assert float(total_loss(loss_terms(out, batch, ctx, c), ctx)) == pytest.approx(lam * t["score"] + 0.5 * t["mode"] + 2.0 * t["clip"])
+    assert make_context(train, c, space(), "cpu").lam_score == 1.0  # the default is the earlier loss
+
+
 def test_pooling_the_terms_of_two_batches_gives_the_mean_over_all_their_steps():
     """The point of numerator/denominator pairs: batches with different numbers of eligible steps still pool exactly."""
     c = ProbeConfig(d_modality=2, n_modalities=D // 2, hidden=8, proj=4, n_modes=N_MODES, clip_dim=DIM, modes=True, clip=True)

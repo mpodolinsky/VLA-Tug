@@ -144,9 +144,17 @@ def test_the_history_is_plain_json(world, patched, tmp_path):
 
 
 def test_the_loss_weights_of_a_run_are_recorded_in_its_history(world, patched, tmp_path):
-    train_unit(UNIT, patched, settings(tmp_path, lam_mode=0.3, lam_clip=0.1), "cpu", lambda m: None, ARCHS[1:])
+    train_unit(UNIT, patched, settings(tmp_path, lam_mode=0.3, lam_clip=0.1, lam_score=0.5), "cpu", lambda m: None, ARCHS[1:])
     info = read_history(run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path))
-    assert (info["lam_mode"], info["lam_clip"]) == (0.3, 0.1)
+    assert (info["lam_mode"], info["lam_clip"], info["lam_score"]) == (0.3, 0.1, 0.5)
     train_unit(UNIT, patched, settings(tmp_path / "default"), "cpu", lambda m: None, ARCHS[1:])
     default = read_history(run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path / "default"))
-    assert (default["lam_mode"], default["lam_clip"]) == (1.0, 1.0)
+    assert (default["lam_mode"], default["lam_clip"], default["lam_score"]) == (1.0, 1.0, 1.0)
+
+
+def test_a_run_without_the_score_term_keeps_its_mode_logits_and_chooses_its_epoch_on_the_mode_term(world, patched, tmp_path):
+    train_unit(UNIT, patched, settings(tmp_path, lam_score=0.0), "cpu", lambda m: None, ARCHS[1:])
+    folder = run_dir("synthetic", "task_seed4", f"{ARCHS[1]}__onset_pre", tmp_path)
+    info = read_history(folder)
+    assert info["lam_score"] == 0.0 and info["best_epoch"] == int(np.argmin(info["val"]["mode"]))
+    assert (folder / "mode_logits.npz").exists() and (folder / "scores.npz").exists()  # the score head still outputs something; the mode logits are what the run is for
