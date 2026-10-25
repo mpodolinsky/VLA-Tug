@@ -46,14 +46,18 @@ def line_kwargs(entry: Entry) -> dict:
     return dict(color=color_of(entry), linestyle=STYLES[entry.style], linewidth=WIDTH.get(entry.kind, DEFAULT_WIDTH), solid_capstyle="round")
 
 
-def curves_figure(rows: list[tuple[str, dict[tuple[str, str], list[float]]]], settings: list[Setting], entries: list[Entry], ylabel: str) -> Figure:
+def curves_figure(rows: list[tuple[str, dict[tuple[str, str], list[float]]]], settings: list[Setting], entries: list[Entry], ylabel: str,
+                  panel_width: float = PANEL_WIDTH, legend_rows: int = 2, scale: float = 1.0) -> Figure:
     """``rows`` is a list of (row label, curves), top to bottom; ``curves[(setting label, entry label)]`` is the mean curve on ``GRID`` (percent)
     and entries or settings without one are left out. One panel per setting in each row, the setting names above the top row, the FPR label
-    below the bottom one, the row label with ``ylabel`` on the left; the legend below, one entry per method drawn (in the order of ``entries``)."""
+    below the bottom one, the row label with ``ylabel`` on the left; the legend below, one entry per method drawn (in the order of ``entries``).
+    Each panel is ``panel_width`` inches wide (a figure with fewer settings can keep the width of a full one by making its panels wider); the legend
+    has ``legend_rows`` rows. ``scale`` shrinks the figure (the panels and the room for the legend, so the height to width ratio is kept) but not the
+    text, which is then larger relative to the figure; below 1 the legend entries are set closer together so that a single row still fits."""
     style_axes()
     n_rows = len(rows)
-    height = PANEL_HEIGHT * n_rows
-    fig, axes = plt.subplots(n_rows, len(settings), figsize=(PANEL_WIDTH * len(settings), height), squeeze=False, sharex="col")
+    height = PANEL_HEIGHT * n_rows * scale
+    fig, axes = plt.subplots(n_rows, len(settings), figsize=(panel_width * len(settings) * scale, height), squeeze=False, sharex="col")
     drawn = []
     for r, ((row_label, curves), row_axes) in enumerate(zip(rows, axes)):
         for ax, setting in zip(row_axes, settings):
@@ -72,9 +76,10 @@ def curves_figure(rows: list[tuple[str, dict[tuple[str, str], list[float]]]], se
                 ax.set_xlabel("FPR (%)")
         row_axes[0].set_ylabel(f"{row_label}\n{ylabel}")
     shown = [e for e in entries if e in drawn]
-    fig.tight_layout(rect=(0, LEGEND_INCHES / height, 1, 1))
-    fig.legend([Line2D([], [], **line_kwargs(e)) for e in shown], [e.label for e in shown], loc="lower center", ncol=max(1, math.ceil(len(shown) / 2)),
-               fontsize=9, handlelength=2.8, columnspacing=1.6, labelspacing=0.5, bbox_to_anchor=(0.5, 0.0))
+    fig.tight_layout(rect=(0, LEGEND_INCHES * scale / height, 1, 1))
+    spacing = dict(fontsize=9, handlelength=2.8, columnspacing=1.6) if scale >= 1 else dict(fontsize=8.5, handlelength=1.8, columnspacing=0.9, handletextpad=0.5)
+    fig.legend([Line2D([], [], **line_kwargs(e)) for e in shown], [e.label for e in shown], loc="lower center", ncol=max(1, math.ceil(len(shown) / legend_rows)),
+               labelspacing=0.5, bbox_to_anchor=(0.5, 0.0), **spacing)
     return fig
 
 

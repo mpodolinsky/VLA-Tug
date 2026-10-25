@@ -11,6 +11,8 @@ The paper's main table and curve figures, from the evaluated runs under results/
     curves_tpr_early         TPR early against FPR for every setting and method (.png and .pdf): a row for the seen tasks on top, one for
                              the unseen tasks below
     curves_tpr_on_time       the same with the on-time TPR
+    curves_tpr_early_liberox smaller versions of the two curve figures (also curves_tpr_on_time_liberox): LIBERO-X only, three wider panels per row, and only
+                             ours (onset_pre), the two SAFE models, the two STAC variants, ActProbe and FailureSpot; the full figures are written too
 
 Each method is, in each setting, the configuration with the best mean validation area (one architecture for all of our rows and one LIBERO-X
 configuration for each SAFE model; docs/FIGURES.md), with the calibrator the protocol gives it. Our probes carry no per-run costs (they were trained before the sweeps recorded them); --print-benchmark prints the commands that
@@ -80,6 +82,7 @@ def main() -> None:
     if rows:
         write_main_table(args, rows, chosen)
         write_curves(args, rows, chosen)
+        write_compact_curves(args, rows, chosen)
         write_ablation_table(args, rows)
     else:
         print(f"no evaluated runs under {args.root} (python -m cli.evaluate first): the main table and the curves are skipped")
@@ -133,15 +136,31 @@ def write_mode_table(args) -> None:
     print("wrote", args.out / "table_modes.tex", "and table_modes.csv")
 
 
-def write_curves(args, rows: list[dict], chosen: dict) -> None:
+def write_curves(args, rows: list[dict], chosen: dict, settings=figures.SETTINGS, entries=figures.ENTRIES, suffix: str = "",
+                 panel_width: float = plots.PANEL_WIDTH, legend_rows: int = 2, scale: float = 1.0) -> None:
+    """The two curve figures (TPR early and on-time TPR) for ``settings`` and ``entries``, written as curves_<metric><suffix>."""
     for metric, ylabel in (("tpr_early", "TPR early (%)"), ("tpr_on_time", "TPR on-time (%)")):
         panels = []
         for eval_set, row_label in (("seen", "Seen tasks"), ("unseen", "Unseen tasks")):  # seen on top
             curves = {(s.label, e.label): figures.mean_curve(rows, s, chosen[(s.label, e.label)], eval_set, metric, args.root)
-                      for s in figures.SETTINGS for e in figures.ENTRIES if (s.label, e.label) in chosen}
+                      for s in settings for e in entries if (s.label, e.label) in chosen}
             panels.append((row_label, curves))
-        fig = plots.curves_figure(panels, list(figures.SETTINGS), list(figures.ENTRIES), ylabel)
-        print("wrote", *plots.save(fig, f"curves_{metric}", args.out))
+        fig = plots.curves_figure(panels, list(settings), list(entries), ylabel, panel_width, legend_rows, scale)
+        print("wrote", *plots.save(fig, f"curves_{metric}{suffix}", args.out))
+
+
+def write_compact_curves(args, rows: list[dict], chosen: dict) -> None:
+    """The curve figures again, smaller: LIBERO-X only (three panels per row) and the methods of ``figures.COMPACT_LABELS``, with the legend in a single
+    row. Before the scaling the figure has the width of the full figures (each panel is as many times wider as there are fewer panels); it is then
+    ``figures.COMPACT_SCALE`` times that size with the same height to width ratio and the same font sizes. Skipped with a message when there is no
+    LIBERO-X curve."""
+    settings = modes.LIBEROX
+    entries = [e for e in figures.ENTRIES if e.label in figures.COMPACT_LABELS]
+    if not any((s.label, e.label) in chosen for s in settings for e in entries):
+        print("no LIBERO-X curves: the compact curve figures are skipped")
+        return
+    write_curves(args, rows, chosen, settings, entries, "_liberox", plots.PANEL_WIDTH * len(figures.SETTINGS) / len(settings), legend_rows=1,
+                 scale=figures.COMPACT_SCALE)
 
 
 if __name__ == "__main__":

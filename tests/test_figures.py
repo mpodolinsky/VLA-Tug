@@ -498,3 +498,70 @@ def test_a_split_without_a_curve_file_is_left_out_of_the_mean_curve_like_it_is_l
     both = figures.mean_curve(rows, real, method, "unseen", root=root)
     one = figures.mean_curve(collect_rows(tmp_path / "results"), real, method, "unseen", root=root)
     assert np.array_equal(both, one) and figures.area_cell(rows, real, method, "unseen").n == 2
+
+
+# ---------------------------------------------------------------- the compact curve figures
+def test_a_panel_can_be_made_wider_so_that_fewer_panels_keep_the_width_of_a_full_figure():
+    entries = list(figures.ENTRIES[:2])
+    default = plots.curves_figure(one_row(figures.SETTINGS[:3], entries), list(figures.SETTINGS[:3]), entries, "y")
+    wide = plots.curves_figure(one_row(figures.SETTINGS[:3], entries), list(figures.SETTINGS[:3]), entries, "y", panel_width=2 * plots.PANEL_WIDTH)
+    assert wide.get_size_inches()[0] == pytest.approx(2 * default.get_size_inches()[0]) and wide.get_size_inches()[1] == pytest.approx(default.get_size_inches()[1])
+    matplotlib.pyplot.close("all")
+
+
+def test_a_scaled_figure_keeps_the_ratio_and_the_font_sizes_so_its_text_is_relatively_larger():
+    entries = list(figures.ENTRIES[:5])
+    args = (one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y")
+    full, half = plots.curves_figure(*args), plots.curves_figure(*args, scale=0.5)
+    (fw, fh), (hw, hh) = full.get_size_inches(), half.get_size_inches()
+    assert (hw, hh) == (pytest.approx(fw / 2), pytest.approx(fh / 2)) and hh / hw == pytest.approx(fh / fw)  # half the size, the same height to width ratio
+    assert half.axes[0].title.get_fontsize() == full.axes[0].title.get_fontsize() and half.axes[0].xaxis.label.get_fontsize() == full.axes[0].xaxis.label.get_fontsize()
+    assert full.legends[0].get_texts()[0].get_fontsize() == 9 and half.legends[0].get_texts()[0].get_fontsize() == 8.5  # only the legend is set a little smaller, to fit one row
+    matplotlib.pyplot.close("all")
+
+
+def test_the_legend_has_two_rows_unless_asked_for_one():
+    entries = list(figures.ENTRIES[:5])
+    two = plots.curves_figure(one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y")
+    one = plots.curves_figure(one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y", legend_rows=1)
+    assert (two.legends[0]._ncols, one.legends[0]._ncols) == (3, 5)  # five entries: two rows of up to three columns, or one row of five
+    matplotlib.pyplot.close("all")
+
+
+def test_the_compact_curve_figures_are_liberox_with_the_compact_methods_at_the_width_of_the_full_figures(tmp_path, monkeypatch, capsys):
+    root = tmp_path / "results"
+    for split in ("task_seed0", "task_seed1"):
+        write_run(root, "liberox_groot", split, "stac__mmd3_step", 20.0, 0.4)
+        write_run(root, "liberox_groot", split, "actprobe", 30.0, 0.6)
+        write_run(root, "liberox_groot", split, f"{figures.OURS_ARCHITECTURE}__onset_traj", 40.0, 0.8)  # a method that is not in the compact figure
+    rows = collect_rows(root)
+    chosen, _ = figures.choose_all(rows)
+    assert ("LIBERO-X task", "Ours (onset_traj)") in chosen
+    calls, original = [], plots.curves_figure
+
+    def spy(panels, settings, entries, ylabel, panel_width=plots.PANEL_WIDTH, legend_rows=2, scale=1.0):
+        fig = original(panels, settings, entries, ylabel, panel_width, legend_rows, scale)
+        calls.append((panels, settings, entries, panel_width, tuple(fig.get_size_inches()), fig.legends[0]._ncols))
+        return fig
+
+    monkeypatch.setattr(plots, "curves_figure", spy)
+    args = type("Args", (), {"out": tmp_path / "out", "root": root})
+    cli_figures.write_compact_curves(args, rows, chosen)
+    assert len(calls) == 2  # TPR early and on-time TPR
+    panels, settings, entries, panel_width, (width, height), legend_columns = calls[0]
+    assert [s.label for s in settings] == ["LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill"] and [r[0] for r in panels] == ["Seen tasks", "Unseen tasks"]
+    assert [e.label for e in entries] == ["Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot"]
+    assert panel_width == pytest.approx(2 * plots.PANEL_WIDTH)  # twice as wide panels, three instead of six
+    assert width == pytest.approx(figures.COMPACT_SCALE * plots.PANEL_WIDTH * len(figures.SETTINGS)) and figures.COMPACT_SCALE == 0.5  # half the width of the six-panel figure
+    assert height / width == pytest.approx(2 * plots.PANEL_HEIGHT / (plots.PANEL_WIDTH * len(figures.SETTINGS)))  # and its height to width ratio
+    assert legend_columns == 2  # a single legend row: one column per method drawn (STAC and ActProbe here; two rows would make it one column)
+    assert {entry for _, entry in panels[0][1]} == {"STAC", "ActProbe"}  # our onset_traj probe has a curve in the data but is not drawn
+    for stem in ("curves_tpr_early_liberox", "curves_tpr_on_time_liberox"):
+        assert (tmp_path / "out" / f"{stem}.png").exists() and (tmp_path / "out" / f"{stem}.pdf").exists()
+
+
+def test_the_compact_curve_figures_are_skipped_with_a_message_when_there_is_no_liberox_curve(results, tmp_path, capsys):
+    rows = collect_rows(results)
+    chosen, _ = figures.choose_all(rows)
+    cli_figures.write_compact_curves(type("Args", (), {"out": tmp_path / "out", "root": results}), rows, chosen)
+    assert "no LIBERO-X curves" in capsys.readouterr().out and not (tmp_path / "out").exists()
