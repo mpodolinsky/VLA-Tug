@@ -15,7 +15,7 @@ LTT is a separate evaluation with targets that must be given (``evaluate_ltt``).
 
 from dataclasses import asdict
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 
 import numpy as np
 
@@ -103,9 +103,11 @@ def evaluate_saved_run(dataset: str, split_name: str, method: str, path: Path, i
     return "done"
 
 
-def rates_at(tau: float, scores: Mapping[str, np.ndarray], episodes: list[Episode], window: int) -> dict:
-    """Rates of the constant threshold ``tau`` on ``episodes`` (alarm where score >= tau)."""
-    outcomes = [classify(scores[e.key], np.full(len(scores[e.key]), tau), e.onset, window) for e in episodes]
+def rates_at(tau: float | Callable[[int], np.ndarray], scores: Mapping[str, np.ndarray], episodes: list[Episode], window: int) -> dict:
+    """Rates of the threshold ``tau`` on ``episodes`` (alarm where score >= tau): a constant, or a function giving the threshold of each step of an episode
+    of a given length (a band that varies with the step)."""
+    at = tau if callable(tau) else lambda n: np.full(n, tau)
+    outcomes = [classify(scores[e.key], at(len(scores[e.key])), e.onset, window) for e in episodes]
     n_fail = sum(not e.success for e in episodes)
     return {**asdict(rates_from_outcomes(outcomes)), "n_fail": n_fail, "n_succ": len(episodes) - n_fail}
 

@@ -282,15 +282,16 @@ def mode_ablation_csv_rows(blocks: list[ModeAblationBlock], settings: list[str])
     return out
 
 
-# ---------------------------------------------------------------- the LTT against max-conformal table
-LTT_CAPTION = (r"Learn-then-Test (LTT) against max-conformal calibration of the same probe at the same false-positive-rate (FPR) target, over RUNS "
+# ---------------------------------------------------------------- the LTT against max conformal and functional conformal table
+LTT_CAPTION = (r"Learn-then-Test (LTT) against max conformal (MC) and functional conformal (FC) calibration of the same probe at the same "
+               r"false-positive-rate (FPR) target, over RUNS "
                r"runs (one per splitKINDS). LTT (STARTS fixed-sequence walks, $\delta = DELTA$) certifies the FPR target together with the TPR-early target "
                r"of the second column, the highest one that at least half of the runs certify; it can abstain, so its percentages are over the runs it "
-               r"certifies (column Runs). Max-conformal always returns a threshold and has no TPR-early target. Holds: the share of runs in which the "
+               r"certifies (column Runs). MC and FC always return a threshold (the FC band varies with the step) and have no TPR-early target. Holds: the share of runs in which the "
                r"target is met on the held-out episodes of the tasks the calibration used (seen) or on held-out tasks (unseen); FPR and TPR early "
                r"(in \%): the mean over the runs and, after $\pm$, the standard deviation. PPV bound: the lower bound "
                r"$\beta\pi/(\beta\pi+\alpha(1-\pi))$ on the probability of failure given an alarm, from the two targets ($\beta$: TPR early, $\alpha$: FPR) and the "
-               r"failure prevalence $\pi$ of the calibration set (mean over the certified runs); max-conformal has no TPR-early target, so no bound. PPV: the "
+               r"failure prevalence $\pi$ of the calibration set (mean over the certified runs); MC and FC have no TPR-early target, so no bound. PPV: the "
                r"realised share of failed rollouts among those with an alarm (mean over the runs that have one); PPV holds: the share of those runs in which it is at "
                r"least the bound, computed with the calibration set's prevalence or, in the next column, with the prevalence of the evaluated set. The failure "
                r"prevalence is SEEN_PI\% on the seen and UNSEEN_PI\% on the unseen episodes (mean over the runs). Shaded rows are "
@@ -378,9 +379,82 @@ def ltt_latex_table(rows: list[LttRow], delta: float, n_starts: int, caption: st
                     source: str = "python -m cli.ltt_table", kinds: str = "") -> str:
     """The LTT table as a ``table*`` float (see ``latex_table``); ``kinds`` says in the caption what the runs are (``ltt_caption``). Needs booktabs, graphicx and
     xcolor with the table option."""
-    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
-                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or ltt_caption(rows, delta, n_starts, kinds)}}}", rf"\label{{{label}}}",
-                      r"\setlength{\tabcolsep}{4pt}", r"\resizebox{\textwidth}{!}{%", ltt_tabular(rows).rstrip("\n") + "%", "}", r"\end{table*}", ""])
+    return ltt_float(ltt_tabular(rows), caption or ltt_caption(rows, delta, n_starts, kinds), label, source)
+
+
+def ltt_float(tabular: str, caption: str, label: str, source: str, width: float = 1.0, needs: str = "", before: tuple[str, ...] = (), placement: str = "t") -> str:
+    """The ``table*`` float around an LTT ``tabular``, scaled to ``width`` times the text width. ``needs``: further packages the table uses, named in the header
+    comment; ``before``: lines placed before the float (command definitions)."""
+    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx, {needs}xcolor with the table option", *before,
+                      rf"\begin{{table*}}[{placement}]", r"\centering", rf"\caption{{{caption}}}", rf"\label{{{label}}}",
+                      r"\setlength{\tabcolsep}{4pt}", rf"\resizebox{{{width}\textwidth}}{{!}}{{%", tabular.rstrip("\n") + "%", "}", r"\end{table*}", ""])
+
+
+# The compact version for the paper's text: three FPR targets, no PPV columns (the PPV bound is in the text), no spread, and in each cell the mean rate with the
+# share of runs in which the target holds in parentheses. The full table above goes to the appendix.
+COMPACT_FPR_TARGETS = (0.2, 0.3, 0.4)
+LTT_COMPACT_CAPTION = (r"Learn-then-Test (LTT) against max conformal (MC) and functional conformal (FC) calibration of our probe at three false-positive-rate (FPR) targets, over RUNS runs (one per split). "
+                       r"Mean FPR and TPR early (in \%) over the runs, with the share of runs in which the target holds in parentheses. LTT ($\delta = DELTA$) "
+                       r"certifies the FPR target together with the TPR-early target shown and may abstain, so its numbers are over the runs it certifies (Runs). "
+                       r"MC and FC have no TPR-early target. Seen: held-out episodes of the calibration tasks; unseen: held-out tasks. Shaded: LTT.")
+# The marks of the share of runs in which a target holds: a tick when it holds in every run, a wave on the unseen tasks (where no guarantee applies) when it holds
+# in at least ``WAVE_FROM`` percent of the runs, a cross otherwise. A rate without a target has no mark. The commands are defined with \providecommand, so the
+# file can be input beside a paper that defines them.
+WAVE_FROM = 50.0
+MARK_COMMANDS = (r"\providecommand{\gtick}{\textcolor{green!60!black}{\ding{51}}}", r"\providecommand{\owave}{\textcolor{orange}{$\boldsymbol{\sim}$}}",
+                 r"\providecommand{\rcross}{\textcolor{red}{\ding{55}}}", "")
+LTT_COMPACT_LEGEND = (r" \gtick: target holds in all runs; \owave: empirically approaches the guarantee (on unseen tasks, holds in at least half of the runs); "
+                      r"\rcross: does not hold.")
+LTT_COMPACT_TABLE_WIDTH = 0.74  # of the text width: the table's natural width (579.6 pt with the marks, measured with pdflatex as for the mode table) over the main
+# table's (785.7 pt), so that its text is as large as the main table's
+
+
+def ltt_compact_rows(rows: list[LttRow], targets=COMPACT_FPR_TARGETS) -> list[LttRow]:
+    """The rows of the FPR ``targets`` only (a target the rows do not have is left out)."""
+    return [r for r in rows if any(abs(r.fpr_target - t) < 1e-9 for t in targets)]
+
+
+def holds_mark(holds: float, unseen: bool) -> str:
+    """The mark of a target that holds in ``holds`` percent of the runs (see ``WAVE_FROM``)."""
+    if holds >= 100:
+        return r"\gtick"
+    return r"\owave" if unseen and holds >= WAVE_FROM else r"\rcross"
+
+
+def rate_with_holds(rate: float, holds: float | None, unseen: bool = False) -> str:
+    """The mean ``rate`` (%), in parentheses the share of runs (%) in which its target holds and the mark of that share; without a target only the rate."""
+    return number(rate, 1) + ("" if holds is None else rf" ({holds:.0f}\%) {holds_mark(holds, unseen)}")
+
+
+def ltt_compact_cells(cells: LttCells | None, unseen: bool = False) -> list[str]:
+    """FPR and TPR early of one set (``unseen``: the unseen tasks), each with the share of runs in which the target holds."""
+    if cells is None:
+        return [MISSING] * 2
+    return [rate_with_holds(cells.fpr[0], cells.fpr_holds, unseen), rate_with_holds(cells.tpr_early[0], cells.tpr_holds, unseen)]
+
+
+def ltt_compact_tabular(rows: list[LttRow]) -> str:
+    """The bare ``tabular``: the two targets, the method, the runs it certifies, then FPR and TPR early on the seen and on the unseen episodes; a block per FPR target."""
+    lines = [r"\begin{tabular}{lllrrrrr}", r"\toprule", r" & & & & \multicolumn{2}{c}{Seen tasks} & \multicolumn{2}{c}{Unseen tasks} \\",
+             r"\cmidrule(lr){5-6}\cmidrule(lr){7-8}", r"FPR target & TPR-early target & Method & Runs & FPR & TPR early & FPR & TPR early \\", r"\midrule"]
+    previous = None
+    for r in rows:
+        if r.fpr_target != previous and previous is not None:
+            lines.append(r"\midrule")
+        first = percent(100 * r.fpr_target) if r.fpr_target != previous else ""
+        previous = r.fpr_target
+        target = MISSING if r.tpr_target is None else percent(100 * r.tpr_target)
+        cells = ltt_compact_cells(r.seen) + ltt_compact_cells(r.unseen, unseen=True)
+        lines.append((r"\rowcolor{gray!15} " if r.highlight else "") + " & ".join([first, target, escape(r.method), f"{r.n_certified}/{r.n_runs}"] + cells) + r" \\")
+    return "\n".join(lines + [r"\bottomrule", r"\end{tabular}", ""])
+
+
+def ltt_compact_latex_table(rows: list[LttRow], delta: float, caption: str | None = None, label: str = "tab:ltt_compact",
+                            source: str = "python -m cli.ltt_table") -> str:
+    """The compact LTT table as a ``table*`` float: only the rows of ``COMPACT_FPR_TARGETS`` (``ltt_compact_rows``), see above."""
+    rows = ltt_compact_rows(rows)
+    caption = caption or LTT_COMPACT_CAPTION.replace("RUNS", str(max(r.n_runs for r in rows))).replace("DELTA", f"{delta:g}") + LTT_COMPACT_LEGEND
+    return ltt_float(ltt_compact_tabular(rows), caption, label, source, LTT_COMPACT_TABLE_WIDTH, "pifont, amsmath, ", MARK_COMMANDS, "htb")
 
 
 def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:

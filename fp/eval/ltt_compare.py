@@ -1,9 +1,11 @@
 """LTT against max-conformal at the same false-positive-rate targets (the table of ``cli.ltt_table``), from the saved scores of one probe.
 
-For each FPR target f and each run (a split), two constant thresholds are chosen on the run's calibration episodes:
+For each FPR target f and each run (a split), two constant thresholds (and the functional conformal band) are chosen on the run's calibration episodes:
 
     max-conformal   level alpha = f, from the calibration successes alone. It promises an FPR level and nothing about TPR, so it has no TPR-early
                     target, and it always returns a threshold (+inf, which never alarms, when alpha is below 1 / (n + 1)).
+    functional      the functional conformal band (FC, ``calibration.safe_band``, computed as SAFE does) at level alpha = f from the same calibration successes:
+                    a threshold that varies with the step, with no TPR-early target either.
     LTT             certifies FPR <= f together with a TPR-early target t, with ``n_starts`` fixed-sequence walks at level delta. t is the highest
                     target on a grid that at least ``MIN_SHARE`` of the runs certify, so that the row describes a typical run; a run that cannot
                     certify it has no threshold (LTT abstains).
@@ -26,6 +28,7 @@ import numpy as np
 
 from ..calibration.ltt import RiskCounts, fixed_sequence_test, joint_p_values, risk_counts, select_threshold
 from ..calibration.max_conformal import MaxConformal
+from ..calibration.safe_band import SafeBand
 from ..data.manifest import Episode
 from ..data.splits import Split
 from ..metrics.ppv import ppv_bound, ppv_from_rates
@@ -36,7 +39,7 @@ N_STARTS = 40
 MIN_SHARE = 0.5
 TPR_TARGETS = tuple(round(0.10 + 0.05 * i, 2) for i in range(18))  # the grid the TPR-early target is taken from: 10% ... 95%
 FPR_TARGETS = (0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50)
-LTT, MAX_CONFORMAL = "LTT", "Max-conformal"
+LTT, MAX_CONFORMAL, FUNCTIONAL_CONFORMAL = "LTT", "Max conformal (MC)", "Functional conformal (FC)"  # the codes of the main table
 KIND_NAMES = {"task": "task seeds", "signature": "signature seeds", "skill": "skill folds"}  # what the splits of each group (``select_config.group_of``) are
 
 
@@ -53,6 +56,7 @@ class Run:
     scores: Mapping[str, np.ndarray]
     counts: RiskCounts
     max_conformal: MaxConformal
+    safe_band: SafeBand
     seen: list[Episode]
     unseen: list[Episode]
     window: int
@@ -68,7 +72,8 @@ def prepare(scores: Mapping[str, np.ndarray], split: Split, episodes: Mapping[st
     successes, failures = [e for e in cal if e.success], [e for e in cal if not e.success]
     success_scores = [scores[e.key] for e in successes]
     counts = risk_counts(success_scores, [scores[e.key] for e in failures], [e.onset for e in failures])
-    return Run(scores, counts, MaxConformal().fit(success_scores), [episodes[k] for k in split.seen], [episodes[k] for k in split.unseen], window)
+    return Run(scores, counts, MaxConformal().fit(success_scores), SafeBand(seed=split.seed).fit(success_scores),
+               [episodes[k] for k in split.seen], [episodes[k] for k in split.unseen], window)
 
 
 def ltt_threshold(run: Run, tpr_target: float, fpr_target: float, delta: float, n_starts: int) -> float | None:
@@ -110,7 +115,7 @@ def set_cells(thresholds: list[tuple[Run, float]], fpr_target: float, tpr_target
 
 def compare(runs: list[Run], fpr_targets=FPR_TARGETS, *, delta: float, n_starts: int = N_STARTS, tpr_targets=TPR_TARGETS,
             min_share: float = MIN_SHARE) -> list[LttRow]:
-    """Two rows per FPR target, LTT then max-conformal. When no TPR-early target is certified by enough runs the LTT row has no target and no cells."""
+    """Three rows per FPR target: LTT, max conformal (MC) and functional conformal (FC). When no TPR-early target is certified by enough runs the LTT row has no target and no cells."""
     rows = []
     for f in fpr_targets:
         t = strongest_tpr_target(runs, f, delta, n_starts, tpr_targets, min_share)
@@ -119,4 +124,12 @@ def compare(runs: list[Run], fpr_targets=FPR_TARGETS, *, delta: float, n_starts:
         rows.append(LttRow(f, t, LTT, True, len(ltt), len(runs), *(set_cells(ltt, f, t, s) if ltt else None for s in ("seen", "unseen")), ppv_bound=bound))
         conformal = [(r, float(r.max_conformal.threshold(f, 1)[0])) for r in runs]
         rows.append(LttRow(f, None, MAX_CONFORMAL, False, len(runs), len(runs), *(set_cells(conformal, f, None, s) for s in ("seen", "unseen"))))
+        band = [(r, functional_threshold(r, f)) for r in runs]
+        rows.append(LttRow(f, None, FUNCTIONAL_CONFORMAL, False, len(runs), len(runs), *(set_cells(band, f, None, s) for s in ("seen", "unseen"))))
     return rows
+
+
+def functional_threshold(run: Run, fpr_target: float):
+    """The functional conformal band of the run at level ``fpr_target``, as a function of the episode length (``rates_at``): computed once at the longest rollout of the run."""
+    band = run.safe_band.threshold(fpr_target, max(len(s) for s in run.scores.values()))
+    return lambda n: band[:n]

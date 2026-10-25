@@ -2,7 +2,8 @@
                           [--groups all ...] [--out results/figures]
 
 LTT against max-conformal at the same FPR targets (fp/eval/ltt_compare.py), from the saved scores of one probe over its runs in the dataset
-(python -m cli.train first; no model is run and no evaluation is needed). Writes table_ltt.tex and table_ltt.csv:
+(python -m cli.train first; no model is run and no evaluation is needed). Writes table_ltt.tex and table_ltt.csv, and table_ltt_compact.tex (the
+rows of three FPR targets, no PPV columns, the mean rate with the share of runs in which the target holds in parentheses; the full table is for the appendix):
 
     for each FPR target, an LTT row (certifying the FPR target together with the highest TPR-early target that at least half of the runs certify)
     and a max-conformal row (no TPR-early target); per row the runs with a threshold and, on the seen and on the unseen episodes, the share of runs
@@ -56,6 +57,11 @@ def main() -> None:
     (args.out / "table_ltt.tex").write_text(tables.ltt_latex_table(rows, args.delta, args.n_starts, source=source, kinds=kinds))
     write_csv(args.out / "table_ltt.csv", tables.ltt_csv_rows(rows))
     print(f"{len(runs)} runs of {args.method} on {args.dataset}; wrote", args.out / "table_ltt.tex", "and table_ltt.csv")
+    if tables.ltt_compact_rows(rows):
+        (args.out / "table_ltt_compact.tex").write_text(tables.ltt_compact_latex_table(rows, args.delta, source=source))
+        print("wrote", args.out / "table_ltt_compact.tex", f"(the FPR targets {', '.join(f'{100 * t:g}%' for t in tables.COMPACT_FPR_TARGETS)})")
+    else:
+        print("no compact table: none of its FPR targets is among --fpr-targets")
     try:
         print("wrote", *plots.save(plots.ppv_figure(rows), "figure_ppv", args.out))
     except ValueError as error:
