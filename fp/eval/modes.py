@@ -81,6 +81,16 @@ def evaluate_split(logits: Mapping[str, np.ndarray], scores: Mapping[str, np.nda
     return out
 
 
+def split_modes(inputs, split) -> tuple[list[int], dict[str, list[str]], dict[str, int]]:
+    """What the mode metrics of one split need: the modes of its training failures, its evaluation sets that have at least one failure (a set without a failure
+    has no mode to predict) as {set: episode keys}, and the true mode of every failed episode of those sets."""
+    train_modes = [int(inputs.targets.modes[k]) for k in split.train if not inputs.episodes[k].success]
+    sets = {e: list(getattr(split, e)) for e in SETS}
+    sets = {e: keys for e, keys in sets.items() if any(not inputs.episodes[k].success for k in keys)}
+    true_modes = {k: int(inputs.targets.modes[k]) for keys in sets.values() for k in keys if not inputs.episodes[k].success}
+    return train_modes, sets, true_modes
+
+
 def mode_results(inputs, root, entries: list[Entry] | None = None, settings=LIBEROX, alpha: float = ALPHA) -> dict[tuple, float]:
     """{(rule, label, metric, setting label, set): percent}, the mean over the splits of the setting. Rules: majority, random (no label) and, for each
     of our entries, oracle, detected, oracle_on_detected and coverage (metric 'top1', 'top3', or 'share')."""
@@ -89,10 +99,7 @@ def mode_results(inputs, root, entries: list[Entry] | None = None, settings=LIBE
     for setting in settings:
         for name in (n for n in inputs.splits if group_of(n) in (setting.group, *setting.also)):
             split = inputs.splits[name]
-            train_modes = [int(inputs.targets.modes[k]) for k in split.train if not inputs.episodes[k].success]
-            sets = {e: [k for k in getattr(split, e)] for e in SETS}
-            sets = {e: keys for e, keys in sets.items() if any(not inputs.episodes[k].success for k in keys)}  # a set without a failure has no mode to predict
-            true_modes = {k: int(inputs.targets.modes[k]) for keys in sets.values() for k in keys if not inputs.episodes[k].success}
+            train_modes, sets, true_modes = split_modes(inputs, split)
             for eval_set, keys in sets.items():
                 for k in TOP_K:
                     majority, random = baseline_accuracy(train_modes, [true_modes[e] for e in keys if e in true_modes], k)

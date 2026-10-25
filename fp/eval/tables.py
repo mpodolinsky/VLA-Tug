@@ -164,21 +164,35 @@ def mode_caption(rows: list[ModeRow], settings: list[str] | None = None) -> str:
     return MODE_CAPTION.replace("COVERAGE", coverage).replace("REAL", REAL_CAPTION if real else "").replace("WINDOW", window)
 
 
+def mode_header(settings: list[str]) -> list[str]:
+    """The opening and the header lines of a failure-mode tabular: top-1 and top-3 side by side, a column per setting and set."""
+    m, n = len(settings), 2 * len(settings)
+    short = [escape(s.removeprefix("LIBERO-X ")) for s in settings]
+    return [r"\begin{tabular}{l" + "r" * (2 * n) + "}", r"\toprule",
+            rf" & \multicolumn{{{n}}}{{c}}{{Top-1 accuracy (\%)}} & \multicolumn{{{n}}}{{c}}{{Top-3 accuracy (\%)}} \\",
+            rf"\cmidrule(lr){{2-{1 + n}}}\cmidrule(lr){{{2 + n}-{1 + 2 * n}}}",
+            " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for _ in range(2) for s in short) + r" \\",
+            "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(2 * m)),
+            "Method & " + " & ".join(e.capitalize() for _ in range(2 * m) for e in ("seen", "unseen")) + r" \\"]
+
+
+def mode_float(lines: list[str], n_settings: int, caption: str, label: str, source: str, width: float | None = None) -> str:
+    """The ``table*`` float around the tabular ``lines`` of a failure-mode table, scaled to ``width`` (a fraction of the text width; by default the one
+    ``mode_table_width`` gives)."""
+    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
+                      rf"\resizebox{{{width or mode_table_width(n_settings)}\textwidth}}{{!}}{{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
+
+
 def mode_latex_table(rows: list[ModeRow], settings: list[str], caption: str | None = None, label: str = "tab:modes",
                      source: str = "python -m cli.figures") -> str:
     """The failure-mode table as a ``table*`` float (see ``latex_table``): top-1 and top-3 side by side, one row per method, the baselines first,
     then our probe at its own alarm and at the oracle onset under their own headings. Only the rows with ``in_latex``."""
-    m, n = len(settings), 2 * len(settings)  # settings; numeric columns per metric
+    n = 2 * len(settings)  # numeric columns per metric
     shown = [r for r in rows if r.in_latex]
     compared = [r for r in shown if r.group != "oracle"]  # best and second best are judged among these
     marks_of = {metric: [marks([getattr(r, metric)[i] for r in compared], 1, True) for i in range(n)] for metric in ("top1", "top3")}
-    short = [escape(s.removeprefix("LIBERO-X ")) for s in settings]
-    lines = [r"\begin{tabular}{l" + "r" * (2 * n) + "}", r"\toprule",
-             rf" & \multicolumn{{{n}}}{{c}}{{Top-1 accuracy (\%)}} & \multicolumn{{{n}}}{{c}}{{Top-3 accuracy (\%)}} \\",
-             rf"\cmidrule(lr){{2-{1 + n}}}\cmidrule(lr){{{2 + n}-{1 + 2 * n}}}",
-             " & " + " & ".join(rf"\multicolumn{{2}}{{c}}{{{s}}}" for _ in range(2) for s in short) + r" \\",
-             "".join(rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}" for i in range(2 * m)),
-             "Method & " + " & ".join(e.capitalize() for _ in range(2 * m) for e in ("seen", "unseen")) + r" \\"]
+    lines = mode_header(settings)
     headings = {"detected": "Ours, own detection (first alarm)", "oracle": "Ours, oracle onset (upper bound)"}
     previous = None
     for r in shown:
@@ -194,10 +208,7 @@ def mode_latex_table(rows: list[ModeRow], settings: list[str], caption: str | No
 
         cells = [cell(v, "top1", i) for i, v in enumerate(r.top1)] + [cell(v, "top3", i) for i, v in enumerate(r.top3)]
         lines.append(("" if r.group == "baseline" else r"\rowcolor{gray!15} ") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
-    lines += [r"\bottomrule", r"\end{tabular}"]
-    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
-                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or mode_caption(rows, settings)}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}",
-                      rf"\resizebox{{{mode_table_width(m)}\textwidth}}{{!}}{{%", "\n".join(lines) + "%", "}", r"\end{table*}", ""])
+    return mode_float(lines + [r"\bottomrule", r"\end{tabular}"], len(settings), caption or mode_caption(rows, settings), label, source)
 
 
 def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:
@@ -210,6 +221,64 @@ def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:
             if values is not None:
                 record.update({f"{name} {s} {e}": None if v is None else round(v, 3) for (s, e), v in zip(columns(settings), values)})
         out.append(record)
+    return out
+
+
+# ---------------------------------------------------------------- what the CLIP head and the score term add to the mode prediction
+MODE_ABLATION_CAPTION = (r"What the CLIP head and the score term add to failure-mode prediction: top-1 and top-3 accuracy in \%, the mean over the splits of each kind "
+                         r"(three, three and eight on LIBERO-X, the eight leave-one-task-out splits of one seed on the real robot). All probes have the LSTM trunk "
+                         r"and the pre-onset label; ``Score'' marks training with the failure-score loss, the other probes are trained on the mode (and CLIP) "
+                         r"terms alone and have no alarm of their own. The mode is the one with the highest mean probability over the 2.4 s before an anchor "
+                         r"step and the anchor itself; the anchor is the same for all four probes: the first alarm of our probe (max-conformal at $\alpha = 0.2$, "
+                         r"the failures that get one) or the true failure onset (an upper bound a deployed system cannot reach). The shaded row is our probe. "
+                         r"Best in bold, second best in italics, per column and anchor.")
+
+
+@dataclass(frozen=True)
+class ModeAblationRow:
+    label: str
+    ours: bool
+    top1: list[float | None]  # mean over the splits, percent, one per setting and set in the order of ``columns``
+    top3: list[float | None]
+    top1_std: list[float | None]  # population standard deviation over the splits, same order
+    top3_std: list[float | None]
+
+
+@dataclass(frozen=True)
+class ModeAblationBlock:
+    title: str  # the anchor the mode is read at
+    rows: list[ModeAblationRow]
+
+
+def mode_ablation_latex_table(blocks: list[ModeAblationBlock], settings: list[str], with_std: bool = False, caption: str | None = None,
+                              label: str = "tab:mode_ablation", source: str = "python -m cli.figures") -> str:
+    """The mode-ablation table as a ``table*`` float (see ``mode_latex_table``): a block per anchor, a row per probe, the best and the second best of a
+    column marked within its block. With ``with_std`` each cell has the standard deviation over the splits after $\\pm$ and the table is set at the full text
+    width (the cells are wider, so the fraction of the plain table would make the text smaller)."""
+    n = 2 * len(settings)
+    lines = mode_header(settings)
+    for block in blocks:
+        marks_of = {metric: [marks([getattr(r, metric)[i] for r in block.rows], 1, True) for i in range(n)] for metric in ("top1", "top3")}
+        lines += [r"\midrule", rf"\multicolumn{{{1 + 2 * n}}}{{l}}{{{block.title}}} \\"]
+        for j, r in enumerate(block.rows):
+            cells = [MISSING if v is None else style(number(v, 1) + (rf"{{\scriptsize$\pm${sd:.1f}}}" if with_std else ""), marks_of[metric][i][j])
+                     for metric in ("top1", "top3") for i, (v, sd) in enumerate(zip(getattr(r, metric), getattr(r, f"{metric}_std")))]
+            lines.append((r"\rowcolor{gray!15} " if r.ours else "") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
+    caption = (caption or MODE_ABLATION_CAPTION) + (STD_CAPTION if with_std else "")
+    return mode_float(lines + [r"\bottomrule", r"\end{tabular}"], len(settings), caption, label, source, 1.0 if with_std else None)
+
+
+def mode_ablation_csv_rows(blocks: list[ModeAblationBlock], settings: list[str]) -> list[dict]:
+    """Every cell with its standard deviation: a column per metric, setting and set, and a row per anchor and probe."""
+    out = []
+    for block in blocks:
+        for r in block.rows:
+            record = {"anchor": block.title, "method": r.label}
+            for metric, name in (("top1", "top-1"), ("top3", "top-3")):
+                for (s, e), v, sd in zip(columns(settings), getattr(r, metric), getattr(r, f"{metric}_std")):
+                    record[f"{name} {s} {e}"] = None if v is None else round(v, 3)
+                    record[f"{name} {s} {e} std"] = None if sd is None else round(sd, 3)
+            out.append(record)
     return out
 
 

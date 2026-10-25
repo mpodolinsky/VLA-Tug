@@ -8,6 +8,9 @@ The paper's main table and curve figures, from the evaluated runs under results/
                              alarm and at the true onset (an upper bound), against the most-common-mode baselines (fp/eval/modes.py)
     table_ablations.tex/.csv the ablations of our probe on the three LIBERO-X split kinds: its heads and its training strategy, the area with the
                              spread over the splits and the change against our probe (fp/eval/ablations.py)
+    table_mode_ablation.tex  (and _std.tex with the spread over splits) what the CLIP head and the score term add to the failure-mode prediction: four LSTM probes (with and without the CLIP head,
+                             with and without the score term) read at the same anchors, on LIBERO-X and the real robot's seed 0, the mean and
+                             the spread over the splits (fp/eval/mode_ablation.py; needs the probes of results/mode_only, see docs/FIGURES.md)
     curves_tpr_early         TPR early against FPR for every setting and method (.png and .pdf): a row for the seen tasks on top, one for
                              the unseen tasks below
     curves_tpr_on_time       the same with the on-time TPR
@@ -27,7 +30,7 @@ from pathlib import Path
 from fp.calibration.protocol import calibrator_name
 from fp.config import RESULTS
 from fp.data.inputs import load_inputs
-from fp.eval import ablations, figures, modes, plots, tables
+from fp.eval import ablations, figures, mode_ablation, modes, plots, tables
 from fp.eval.collect import collect_rows
 from fp.eval.compute import collect_costs
 
@@ -88,6 +91,7 @@ def main() -> None:
     else:
         print(f"no evaluated runs under {args.root} (python -m cli.evaluate first): the main table and the curves are skipped")
     write_mode_table(args)
+    write_mode_ablation_table(args)
 
 
 def write_main_table(args, rows: list[dict], chosen: dict) -> None:
@@ -135,6 +139,24 @@ def write_mode_table(args) -> None:
     (args.out / "table_modes.tex").write_text(tables.mode_latex_table(rows, labels))
     write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(rows, labels))
     print("wrote", args.out / "table_modes.tex", "and table_modes.csv")
+
+
+def write_mode_ablation_table(args) -> None:
+    """The mode-ablation table (fp/eval/mode_ablation.py): LIBERO-X, then the real robot's seed 0. It needs the probes trained without the score term
+    (python -m cli.train --out results/mode_only --lam-score 0 ..., docs/FIGURES.md); skipped with a message when they or the data are not there."""
+    results = {}
+    for dataset, settings in (("liberox_groot", mode_ablation.SETTINGS[:-1]), ("real8_groot", mode_ablation.SETTINGS[-1:])):
+        try:
+            results |= mode_ablation.mode_ablation_results(load_inputs(dataset), args.root, settings)
+        except (FileNotFoundError, KeyError) as error:
+            print(f"no mode-ablation table: {error}")
+            return
+    blocks = mode_ablation.mode_ablation_blocks(results)
+    labels = [s.label for s in mode_ablation.SETTINGS]
+    (args.out / "table_mode_ablation.tex").write_text(tables.mode_ablation_latex_table(blocks, labels))
+    (args.out / "table_mode_ablation_std.tex").write_text(tables.mode_ablation_latex_table(blocks, labels, with_std=True))
+    write_csv(args.out / "table_mode_ablation.csv", tables.mode_ablation_csv_rows(blocks, labels))
+    print("wrote", args.out / "table_mode_ablation.tex", "(+ _std, .csv)")
 
 
 def write_curves(args, rows: list[dict], chosen: dict, settings=figures.SETTINGS, entries=figures.ENTRIES, suffix: str = "",
