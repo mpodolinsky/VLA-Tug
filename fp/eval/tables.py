@@ -215,22 +215,32 @@ def mode_csv_rows(rows: list[ModeRow], settings: list[str]) -> list[dict]:
 
 # ---------------------------------------------------------------- the LTT against max-conformal table
 LTT_CAPTION = (r"Learn-then-Test (LTT) against max-conformal calibration of the same probe at the same false-positive-rate (FPR) target, over RUNS "
-               r"runs (one per split). LTT (STARTS fixed-sequence walks, $\delta = DELTA$) certifies the FPR target together with the TPR-early target "
+               r"runs (one per splitKINDS). LTT (STARTS fixed-sequence walks, $\delta = DELTA$) certifies the FPR target together with the TPR-early target "
                r"of the second column, the highest one that at least half of the runs certify; it can abstain, so its percentages are over the runs it "
                r"certifies (column Runs). Max-conformal always returns a threshold and has no TPR-early target. Holds: the share of runs in which the "
                r"target is met on the held-out episodes of the tasks the calibration used (seen) or on held-out tasks (unseen); FPR and TPR early "
-               r"(in \%): the mean over the runs and, after $\pm$, the standard deviation. Shaded rows are LTT. The guarantee covers the seen "
-               r"episodes only, and the TPR-early targets were chosen from these runs.")
+               r"(in \%): the mean over the runs and, after $\pm$, the standard deviation. PPV bound: the lower bound "
+               r"$\beta\pi/(\beta\pi+\alpha(1-\pi))$ on the probability of failure given an alarm, from the two targets ($\beta$: TPR early, $\alpha$: FPR) and the "
+               r"failure prevalence $\pi$ of the calibration set (mean over the certified runs); max-conformal has no TPR-early target, so no bound. PPV: the "
+               r"realised share of failed rollouts among those with an alarm (mean over the runs that have one); PPV holds: the share of those runs in which it is at "
+               r"least the bound, computed with the calibration set's prevalence or, in the next column, with the prevalence of the evaluated set. The failure "
+               r"prevalence is SEEN_PI\% on the seen and UNSEEN_PI\% on the unseen episodes (mean over the runs). Shaded rows are "
+               r"LTT. The guarantee covers the seen episodes only, and the TPR-early targets were chosen from these runs.")
 
 
 @dataclass(frozen=True)
 class LttCells:
-    """One evaluation set of one row of the LTT table: the share of runs (%) in which each target holds, and the mean and standard deviation over
-    the runs of the FPR and of the TPR early (%)."""
+    """One evaluation set of one row of the LTT table: the share of runs (%) in which each target holds, the mean and standard deviation over
+    the runs of the FPR and of the TPR early (%), and the PPV: its mean over the runs that have an alarm (%) and the share of those runs (%) in which
+    it is at least the bound computed with the calibration set's prevalence and with the set's own."""
     fpr_holds: float
     tpr_holds: float | None  # None for a method without a TPR-early target
     fpr: tuple[float, float]
     tpr_early: tuple[float, float]
+    ppv: float | None = None  # None when no run has an alarm in the set
+    ppv_holds_calibration: float | None = None  # None without a bound (no TPR-early target)
+    ppv_holds_own: float | None = None
+    prevalence: float | None = None  # the mean failure prevalence of the set over the runs (a fraction)
 
 
 @dataclass(frozen=True)
@@ -243,26 +253,34 @@ class LttRow:
     n_runs: int
     seen: LttCells | None  # None when no run has a threshold
     unseen: LttCells | None
+    ppv_bound: float | None = None  # % : the mean over the certified runs of the PPV bound at the calibration prevalence; None without a TPR-early target
 
 
 def percent(value: float) -> str:
     return rf"{value:.0f}\%"
 
 
+def optional(value: float | None, show) -> str:
+    return MISSING if value is None else show(value)
+
+
 def ltt_cells(cells: LttCells | None) -> list[str]:
-    """FPR holds, TPR holds, FPR, TPR early of one set."""
+    """FPR holds, TPR holds, FPR, TPR early, PPV, PPV holds and PPV holds with the set's own prevalence, of one set."""
     if cells is None:
-        return [MISSING] * 4
+        return [MISSING] * 7
     spread = lambda mean_std: number(mean_std[0], 1) + rf"{{\scriptsize$\pm${mean_std[1]:.1f}}}"
-    return [percent(cells.fpr_holds), MISSING if cells.tpr_holds is None else percent(cells.tpr_holds), spread(cells.fpr), spread(cells.tpr_early)]
+    return [percent(cells.fpr_holds), optional(cells.tpr_holds, percent), spread(cells.fpr), spread(cells.tpr_early), optional(cells.ppv, lambda v: number(v, 1)),
+            optional(cells.ppv_holds_calibration, percent), optional(cells.ppv_holds_own, percent)]
 
 
 def ltt_tabular(rows: list[LttRow]) -> str:
-    """The bare ``tabular``: both targets first, then the method and its runs, then the seen and the unseen columns; one block per FPR target."""
-    lines = [r"\begin{tabular}{lll" + "r" * 9 + "}", r"\toprule",
-             r" & & & & \multicolumn{4}{c}{Seen tasks} & \multicolumn{4}{c}{Unseen tasks} \\",
-             r"\cmidrule(lr){5-8}\cmidrule(lr){9-12}",
-             r"FPR target & TPR-early target & Method & Runs & " + " & ".join(["FPR holds", "TPR holds", "FPR", "TPR early"] * 2) + r" \\", r"\midrule"]
+    """The bare ``tabular``: the two targets and the PPV bound they give first, then the method and its runs, then the seen and the unseen columns; one block per
+    FPR target."""
+    per_set = ["FPR holds", "TPR holds", "FPR", "TPR early", "PPV", r"\shortstack{PPV\\holds}", r"\shortstack{PPV holds\\(own $\pi$)}"]  # two-line headers keep the columns narrow
+    lines = [r"\begin{tabular}{llrlr" + "r" * 2 * len(per_set) + "}", r"\toprule",
+             r" & & & & & \multicolumn{7}{c}{Seen tasks} & \multicolumn{7}{c}{Unseen tasks} \\",
+             r"\cmidrule(lr){6-12}\cmidrule(lr){13-19}",
+             r"FPR target & TPR-early target & PPV bound & Method & Runs & " + " & ".join(per_set * 2) + r" \\", r"\midrule"]
     previous = None
     for r in rows:
         if r.fpr_target != previous and previous is not None:
@@ -270,21 +288,29 @@ def ltt_tabular(rows: list[LttRow]) -> str:
         first = percent(100 * r.fpr_target) if r.fpr_target != previous else ""
         previous = r.fpr_target
         target = MISSING if r.tpr_target is None else percent(100 * r.tpr_target)
+        bound = optional(r.ppv_bound, lambda v: number(v, 1))
         runs = percent(100 * r.n_certified / r.n_runs) + f" ({r.n_certified}/{r.n_runs})"
         cells = ltt_cells(r.seen) + ltt_cells(r.unseen)
-        lines.append((r"\rowcolor{gray!15} " if r.highlight else "") + " & ".join([first, target, escape(r.method), runs] + cells) + r" \\")
+        lines.append((r"\rowcolor{gray!15} " if r.highlight else "") + " & ".join([first, target, bound, escape(r.method), runs] + cells) + r" \\")
     return "\n".join(lines + [r"\bottomrule", r"\end{tabular}", ""])
 
 
-def ltt_caption(rows: list[LttRow], delta: float, n_starts: int) -> str:
-    return LTT_CAPTION.replace("RUNS", str(max(r.n_runs for r in rows))).replace("STARTS", str(n_starts)).replace("DELTA", f"{delta:g}")
+def ltt_caption(rows: list[LttRow], delta: float, n_starts: int, kinds: str = "") -> str:
+    """``LTT_CAPTION`` with the number of runs, what the runs are (``kinds``, e.g. "3 task seeds, 8 skill folds"; left out when empty), the walks, delta and the
+    failure prevalence of the seen and the unseen set (a property of the data, the same for every row: read from a max-conformal row, which has every run)."""
+    every_run = next((r for r in rows if not r.highlight and r.seen is not None), None)
+    prevalence = lambda cells: "--" if cells is None or cells.prevalence is None else f"{100 * cells.prevalence:.1f}"
+    return (LTT_CAPTION.replace("RUNS", str(max(r.n_runs for r in rows))).replace("KINDS", f": {kinds}" if kinds else "").replace("STARTS", str(n_starts))
+            .replace("DELTA", f"{delta:g}")
+            .replace("UNSEEN_PI", prevalence(every_run and every_run.unseen)).replace("SEEN_PI", prevalence(every_run and every_run.seen)))  # (UNSEEN_PI contains SEEN_PI)
 
 
 def ltt_latex_table(rows: list[LttRow], delta: float, n_starts: int, caption: str | None = None, label: str = "tab:ltt",
-                    source: str = "python -m cli.ltt_table") -> str:
-    """The LTT table as a ``table*`` float (see ``latex_table``). Needs booktabs, graphicx and xcolor with the table option."""
+                    source: str = "python -m cli.ltt_table", kinds: str = "") -> str:
+    """The LTT table as a ``table*`` float (see ``latex_table``); ``kinds`` says in the caption what the runs are (``ltt_caption``). Needs booktabs, graphicx and
+    xcolor with the table option."""
     return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option",
-                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or ltt_caption(rows, delta, n_starts)}}}", rf"\label{{{label}}}",
+                      r"\begin{table*}[t]", r"\centering", rf"\caption{{{caption or ltt_caption(rows, delta, n_starts, kinds)}}}", rf"\label{{{label}}}",
                       r"\setlength{\tabcolsep}{4pt}", r"\resizebox{\textwidth}{!}{%", ltt_tabular(rows).rstrip("\n") + "%", "}", r"\end{table*}", ""])
 
 
@@ -292,13 +318,16 @@ def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:
     """One dict per row: the targets (%), the method, the runs, and for the seen and the unseen set every column of the table."""
     out = []
     for r in rows:
+        rounded = lambda v: None if v is None else round(v, 3)
         record = {"fpr target": round(100 * r.fpr_target, 3), "tpr-early target": None if r.tpr_target is None else round(100 * r.tpr_target, 3),
-                  "method": r.method, "runs certified": r.n_certified, "runs": r.n_runs}
+                  "ppv bound": rounded(r.ppv_bound), "method": r.method, "runs certified": r.n_certified, "runs": r.n_runs}
         for name, cells in (("seen", r.seen), ("unseen", r.unseen)):
             if cells is not None:
-                record.update({f"{name} fpr holds": round(cells.fpr_holds, 3), f"{name} tpr holds": None if cells.tpr_holds is None else round(cells.tpr_holds, 3),
+                record.update({f"{name} fpr holds": round(cells.fpr_holds, 3), f"{name} tpr holds": rounded(cells.tpr_holds),
                                f"{name} fpr mean": round(cells.fpr[0], 3), f"{name} fpr std": round(cells.fpr[1], 3),
-                               f"{name} tpr early mean": round(cells.tpr_early[0], 3), f"{name} tpr early std": round(cells.tpr_early[1], 3)})
+                               f"{name} tpr early mean": round(cells.tpr_early[0], 3), f"{name} tpr early std": round(cells.tpr_early[1], 3),
+                               f"{name} ppv": rounded(cells.ppv), f"{name} ppv holds": rounded(cells.ppv_holds_calibration),
+                               f"{name} ppv holds own prevalence": rounded(cells.ppv_holds_own), f"{name} prevalence": rounded(cells.prevalence)})
         out.append(record)
     return out
 

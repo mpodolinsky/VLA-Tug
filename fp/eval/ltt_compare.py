@@ -11,6 +11,11 @@ For each FPR target f and each run (a split), two constant thresholds are chosen
 Each threshold is measured on the run's held-out seen episodes and on its unseen episodes (``run_eval.rates_at``): the share of runs in which each
 target holds, and the mean and standard deviation over the runs of the FPR and of the TPR early. LTT's shares are over the runs it certifies,
 max-conformal's over all runs. The LTT guarantee is for episodes exchangeable with the calibration set, i.e. the seen episodes.
+
+The two guaranteed targets also bound the probability of failure given an alarm (``metrics.ppv``): PPV >= beta pi / (beta pi + alpha (1 - pi)) with beta the
+TPR-early target, alpha the FPR target and pi the failure prevalence. Each LTT row reports that bound at the calibration set's prevalence; each evaluated set
+reports the realised PPV (the failed rollouts among those with an alarm, late alarms included) and the share of runs in which it is at least the bound, computed
+with the calibration set's prevalence and with the evaluated set's own. Max-conformal has no TPR-early target, so it has no bound (its PPV is reported).
 """
 
 import math
@@ -23,6 +28,7 @@ from ..calibration.ltt import RiskCounts, fixed_sequence_test, joint_p_values, r
 from ..calibration.max_conformal import MaxConformal
 from ..data.manifest import Episode
 from ..data.splits import Split
+from ..metrics.ppv import ppv_bound, ppv_from_rates
 from .run_eval import rates_at
 from .tables import LttCells, LttRow
 
@@ -31,6 +37,14 @@ MIN_SHARE = 0.5
 TPR_TARGETS = tuple(round(0.10 + 0.05 * i, 2) for i in range(18))  # the grid the TPR-early target is taken from: 10% ... 95%
 FPR_TARGETS = (0.10, 0.15, 0.20, 0.25, 0.30, 0.40, 0.50)
 LTT, MAX_CONFORMAL = "LTT", "Max-conformal"
+KIND_NAMES = {"task": "task seeds", "signature": "signature seeds", "skill": "skill folds"}  # what the splits of each group (``select_config.group_of``) are
+
+
+def kinds_text(kinds: Mapping[str, int]) -> str:
+    """What the runs are, for the caption: the number of splits of each group, the LIBERO-X ones first and by their names ("3 task seeds, 3 signature seeds, 8 skill
+    folds"), any other group as "<n> <group> splits"."""
+    order = lambda group: list(KIND_NAMES).index(group) if group in KIND_NAMES else len(KIND_NAMES)
+    return ", ".join(f"{kinds[g]} {KIND_NAMES.get(g, g + ' splits')}" for g in sorted(kinds, key=order))
 
 
 @dataclass(frozen=True)
@@ -42,6 +56,11 @@ class Run:
     seen: list[Episode]
     unseen: list[Episode]
     window: int
+
+    @property
+    def prevalence(self) -> float:
+        """The failure prevalence of the calibration set (a fraction)."""
+        return self.counts.n_fail / (self.counts.n_fail + self.counts.n_succ)
 
 
 def prepare(scores: Mapping[str, np.ndarray], split: Split, episodes: Mapping[str, Episode], window: int) -> Run:
@@ -67,13 +86,26 @@ def strongest_tpr_target(runs: list[Run], fpr_target: float, delta: float, n_sta
 
 
 def set_cells(thresholds: list[tuple[Run, float]], fpr_target: float, tpr_target: float | None, eval_set: str) -> LttCells | None:
-    """The cells of one evaluation set, over the runs that have a threshold and episodes in the set (None when there are none)."""
-    rates = [rates_at(tau, run.scores, getattr(run, eval_set), run.window) for run, tau in thresholds if getattr(run, eval_set)]
-    if not rates:
+    """The cells of one evaluation set, over the runs that have a threshold and episodes in the set (None when there are none). The PPV is that of
+    the set at the run's threshold, over the runs that have an alarm in it; its bound (``metrics.ppv``) is computed from the two targets and the failure
+    prevalence of the calibration set, and of the evaluated set itself, and exists only with a TPR-early target."""
+    measured = [(run, rates_at(tau, run.scores, getattr(run, eval_set), run.window)) for run, tau in thresholds if getattr(run, eval_set)]
+    if not measured:
         return None
+    rates = [r for _, r in measured]
     fpr, tpr = np.array([r["fpr"] for r in rates]), np.array([r["tpr_early"] for r in rates])
+    own = np.array([r["n_fail"] / (r["n_fail"] + r["n_succ"]) for r in rates])
+    ppv = np.array([ppv_from_rates(r["tpr"], r["fpr"], r["n_fail"], r["n_succ"]) for r in rates])
+    alarmed = ~np.isnan(ppv)
+    holds_calibration = holds_own = None
+    if tpr_target is not None and alarmed.any():
+        at_calibration = np.array([ppv_bound(tpr_target, fpr_target, run.prevalence) for run, _ in measured])
+        at_own = np.array([ppv_bound(tpr_target, fpr_target, p) for p in own])
+        holds_calibration = 100 * float(np.mean(ppv[alarmed] / 100 >= at_calibration[alarmed] - 1e-9))
+        holds_own = 100 * float(np.mean(ppv[alarmed] / 100 >= at_own[alarmed] - 1e-9))
     return LttCells(100 * float(np.mean(fpr <= 100 * fpr_target)), None if tpr_target is None else 100 * float(np.mean(tpr >= 100 * tpr_target)),
-                    (float(fpr.mean()), float(fpr.std())), (float(tpr.mean()), float(tpr.std())))
+                    (float(fpr.mean()), float(fpr.std())), (float(tpr.mean()), float(tpr.std())),
+                    float(ppv[alarmed].mean()) if alarmed.any() else None, holds_calibration, holds_own, float(own.mean()))
 
 
 def compare(runs: list[Run], fpr_targets=FPR_TARGETS, *, delta: float, n_starts: int = N_STARTS, tpr_targets=TPR_TARGETS,
@@ -83,7 +115,8 @@ def compare(runs: list[Run], fpr_targets=FPR_TARGETS, *, delta: float, n_starts:
     for f in fpr_targets:
         t = strongest_tpr_target(runs, f, delta, n_starts, tpr_targets, min_share)
         ltt = [] if t is None else [(r, tau) for r in runs if (tau := ltt_threshold(r, t, f, delta, n_starts)) is not None]
-        rows.append(LttRow(f, t, LTT, True, len(ltt), len(runs), *(set_cells(ltt, f, t, s) if ltt else None for s in ("seen", "unseen"))))
+        bound = 100 * float(np.mean([ppv_bound(t, f, run.prevalence) for run, _ in ltt])) if ltt else None  # the PPV bound at the calibration prevalence, mean over the runs
+        rows.append(LttRow(f, t, LTT, True, len(ltt), len(runs), *(set_cells(ltt, f, t, s) if ltt else None for s in ("seen", "unseen")), ppv_bound=bound))
         conformal = [(r, float(r.max_conformal.threshold(f, 1)[0])) for r in runs]
         rows.append(LttRow(f, None, MAX_CONFORMAL, False, len(runs), len(runs), *(set_cells(conformal, f, None, s) for s in ("seen", "unseen"))))
     return rows

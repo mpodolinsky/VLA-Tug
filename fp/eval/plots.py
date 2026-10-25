@@ -12,6 +12,7 @@ import math
 from pathlib import Path
 
 import matplotlib
+import numpy as np
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
@@ -19,7 +20,9 @@ from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 
 from ..metrics.curves import FPR_MAX  # noqa: E402
+from ..metrics.ppv import ppv_bound  # noqa: E402
 from .figures import GRID, Entry, Setting  # noqa: E402
+from .tables import LttRow  # noqa: E402
 
 VIRIDIS_AT = {"onset_pre": 0.55, "onset_traj": 0.10, "onset": 0.33, "onset_post": 0.75}  # positions on the viridis map, one per label variant
 NEUTRAL = {"safe": "#000000", "action": "#595959", "distance": "#a6a6a6"}
@@ -29,6 +32,8 @@ WIDTH = {"ours": 2.4}
 DEFAULT_WIDTH = 1.1
 PANEL_WIDTH, PANEL_HEIGHT = 2.5, 2.9  # inches per panel
 LEGEND_INCHES = 0.5  # height reserved below the panels for the legend
+PPV_PANEL = (3.0, 2.8)  # inches per panel of the PPV figure
+PPV_FPR_TARGETS = (0.2, 0.3, 0.4)  # the FPR targets of the LTT rows it shows
 
 
 def color_of(entry: Entry):
@@ -91,3 +96,32 @@ def save(fig: Figure, stem: str, out_dir: Path) -> list[Path]:
         fig.savefig(path, dpi=200, bbox_inches="tight", facecolor="white")
     plt.close(fig)
     return paths
+
+
+def ppv_figure(rows: list[LttRow], fpr_targets: tuple[float, ...] = PPV_FPR_TARGETS) -> Figure:
+    """The PPV bound (``metrics.ppv``) against the failure prevalence for the LTT rows of ``fpr_targets``, one panel each: the bound is a dashed line, the realised
+    PPV of the seen and of the unseen episodes (the mean over the certified runs) a filled and a hollow marker at the mean prevalence of those sets. Needs at
+    least one LTT row with a TPR-early target and cells."""
+    shown = [r for f in fpr_targets for r in rows if r.highlight and abs(r.fpr_target - f) < 1e-9 and r.tpr_target is not None and r.seen is not None]
+    if not shown:
+        raise ValueError("no LTT row with a TPR-early target for the PPV figure")
+    style_axes()
+    fig, axes = plt.subplots(1, len(shown), figsize=(PPV_PANEL[0] * len(shown), PPV_PANEL[1]), sharey=True, squeeze=False)
+    colour = matplotlib.colormaps["viridis"](VIRIDIS_AT["onset_pre"])
+    prevalence = np.linspace(0, 1, 201)
+    for ax, row in zip(axes[0], shown):
+        ax.plot(prevalence, [100 * ppv_bound(row.tpr_target, row.fpr_target, p) for p in prevalence], color=INK, linestyle=STYLES["dashed"], linewidth=1.4, zorder=2)
+        for cells, filled in ((row.seen, True), (row.unseen, False)):
+            if cells is not None and cells.ppv is not None:
+                ax.plot([cells.prevalence], [cells.ppv], marker="o", markersize=7, linestyle="none", color=colour, markerfacecolor=colour if filled else "white",
+                        markeredgewidth=1.6, zorder=3)
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 100)
+        ax.set_title(rf"FPR $\leq$ {100 * row.fpr_target:.0f}%, TPR early $\geq$ {100 * row.tpr_target:.0f}%")
+        ax.set_xlabel(r"failure prevalence $\pi$")
+    axes[0][0].set_ylabel("PPV (%)")
+    keys = [Line2D([], [], color=INK, linestyle=STYLES["dashed"], linewidth=1.4), Line2D([], [], marker="o", markersize=7, linestyle="none", color=colour),
+            Line2D([], [], marker="o", markersize=7, linestyle="none", color=colour, markerfacecolor="white", markeredgewidth=1.6)]
+    fig.tight_layout(rect=(0, 0.13, 1, 1))
+    fig.legend(keys, ["guaranteed bound", "realised, seen tasks", "realised, unseen tasks"], loc="lower center", ncol=3, fontsize=9, bbox_to_anchor=(0.5, 0.0))
+    return fig

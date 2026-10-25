@@ -6,19 +6,23 @@ LTT against max-conformal at the same FPR targets (fp/eval/ltt_compare.py), from
 
     for each FPR target, an LTT row (certifying the FPR target together with the highest TPR-early target that at least half of the runs certify)
     and a max-conformal row (no TPR-early target); per row the runs with a threshold and, on the seen and on the unseen episodes, the share of runs
-    in which each target holds and the mean and spread of FPR and TPR early.
+    in which each target holds and the mean and spread of FPR and TPR early; and the PPV: the lower bound the two targets give on the probability of
+    failure given an alarm (an LTT row only), and on each set the realised PPV and the share of runs in which it is at least that bound (fp/metrics/ppv.py).
+
+and figure_ppv (.png and .pdf): the bound against the failure prevalence for three of the rows, with the realised PPV of the seen and the unseen set.
 
 --delta has no default, as in  python -m cli.evaluate --ltt: the confidence is a decision. The number of walks (--n-starts) defaults to 40.
 """
 
 import argparse
 import sys
+from collections import Counter
 from pathlib import Path
 
 from cli.figures import write_csv
 from fp.config import RESULTS
 from fp.data.inputs import load_inputs
-from fp.eval import ltt_compare, tables
+from fp.eval import ltt_compare, plots, tables
 from fp.eval.figures import OURS_ARCHITECTURE
 from fp.eval.select_config import group_of
 from fp.grid import DATASETS
@@ -39,18 +43,23 @@ def main() -> None:
     args = p.parse_args()
 
     inputs = load_inputs(args.dataset)
-    runs = [ltt_compare.prepare(read_scores(path), inputs.splits[split], inputs.episodes, inputs.window)
-            for _, split, method, path in iter_runs(args.root, (args.dataset,))
-            if method == args.method and (args.groups is None or group_of(split) in args.groups)]
-    if not runs:
+    selected = [(split, path) for _, split, method, path in iter_runs(args.root, (args.dataset,))
+                if method == args.method and (args.groups is None or group_of(split) in args.groups)]
+    if not selected:
         sys.exit(f"no runs of {args.method} on {args.dataset} under {args.root}")
+    runs = [ltt_compare.prepare(read_scores(path), inputs.splits[split], inputs.episodes, inputs.window) for split, path in selected]
+    kinds = ltt_compare.kinds_text(Counter(group_of(split) for split, _ in selected))
     rows = ltt_compare.compare(runs, args.fpr_targets, delta=args.delta, n_starts=args.n_starts)
 
     args.out.mkdir(parents=True, exist_ok=True)
     source = f"python -m cli.ltt_table --dataset {args.dataset} --method {args.method} --delta {args.delta:g} --n-starts {args.n_starts}"
-    (args.out / "table_ltt.tex").write_text(tables.ltt_latex_table(rows, args.delta, args.n_starts, source=source))
+    (args.out / "table_ltt.tex").write_text(tables.ltt_latex_table(rows, args.delta, args.n_starts, source=source, kinds=kinds))
     write_csv(args.out / "table_ltt.csv", tables.ltt_csv_rows(rows))
     print(f"{len(runs)} runs of {args.method} on {args.dataset}; wrote", args.out / "table_ltt.tex", "and table_ltt.csv")
+    try:
+        print("wrote", *plots.save(plots.ppv_figure(rows), "figure_ppv", args.out))
+    except ValueError as error:
+        print(f"no PPV figure: {error}")
 
 
 if __name__ == "__main__":
