@@ -8,6 +8,8 @@ The paper's main table and curve figures, from the evaluated runs under results/
                              alarm and at the true onset (an upper bound), against the most-common-mode baselines (fp/eval/modes.py)
     table_ablations.tex/.csv the ablations of our probe on the three LIBERO-X split kinds: its heads and its training strategy, the area with the
                              spread over the splits and the change against our probe (fp/eval/ablations.py)
+    table_modes_balanced.tex the same with the balanced accuracy over merged classes (rare modes merged until every class holds 5% of the failures; pooled
+                             over the splits of each kind; mode_classes.csv lists the classes): fp/eval/mode_balanced.py
     table_mode_ablation.tex  (and _std.tex with the spread over splits) what the CLIP head and the score term add to the failure-mode prediction: four LSTM probes (with and without the CLIP head,
                              with and without the score term) read at the same anchors, on LIBERO-X and the real robot's seed 0, the mean and
                              the spread over the splits (fp/eval/mode_ablation.py; needs the probes of results/mode_only, see docs/FIGURES.md)
@@ -30,7 +32,7 @@ from pathlib import Path
 from fp.calibration.protocol import calibrator_name
 from fp.config import RESULTS
 from fp.data.inputs import load_inputs
-from fp.eval import ablations, figures, mode_ablation, modes, plots, tables
+from fp.eval import ablations, figures, mode_ablation, mode_balanced, modes, plots, tables
 from fp.eval.collect import collect_rows
 from fp.eval.compute import collect_costs
 
@@ -91,6 +93,7 @@ def main() -> None:
     else:
         print(f"no evaluated runs under {args.root} (python -m cli.evaluate first): the main table and the curves are skipped")
     write_mode_table(args)
+    write_mode_table(args, balanced=True)
     write_mode_ablation_table(args)
 
 
@@ -119,26 +122,34 @@ def write_ablation_table(args, rows: list[dict]) -> None:
     print("wrote", args.out / "table_ablations.tex", "and table_ablations.csv")
 
 
-def write_mode_table(args) -> None:
-    """The failure-mode table (fp/eval/modes.py): the LIBERO-X columns, then the real robot's. The table is skipped with a message when the LIBERO-X
-    probe runs or data are not there; the real robot's data are not published, so its columns are left out, with a message, when they are not there."""
-    results, settings = {}, []
+def write_mode_table(args, balanced: bool = False) -> None:
+    """The failure-mode table: the LIBERO-X columns, then the real robot's. The plain accuracy of fp/eval/modes.py, or with ``balanced`` the balanced accuracy over
+    merged classes of fp/eval/mode_balanced.py (table_modes_balanced, and mode_classes.csv with the classes). The table is skipped with a message when the
+    LIBERO-X probe runs or data are not there; the real robot's data are not published, so its columns are left out, with a message, when they are not there."""
+    compute = mode_balanced.balanced_results if balanced else modes.mode_results
+    stem = "table_modes_balanced" if balanced else "table_modes"
+    results, settings, classes = {}, [], []
     for dataset, group in (("liberox_groot", modes.LIBEROX), ("real8_groot", modes.REAL)):
         if not group:
             continue
         try:
-            results |= modes.mode_results(load_inputs(dataset), args.root, settings=group)
+            inputs = load_inputs(dataset)
+            results |= compute(inputs, args.root, settings=group)
         except (FileNotFoundError, KeyError) as error:
             print(f"no failure-mode table: {error}" if not settings else f"no failure-mode column for {dataset}: {error}")
             if not settings:
                 return
             continue
         settings += group
+        classes += mode_balanced.group_rows(inputs) if balanced else []
     rows = modes.mode_rows(results, settings=settings)
     labels = [s.label for s in settings]
-    (args.out / "table_modes.tex").write_text(tables.mode_latex_table(rows, labels))
-    write_csv(args.out / "table_modes.csv", tables.mode_csv_rows(rows, labels))
-    print("wrote", args.out / "table_modes.tex", "and table_modes.csv")
+    (args.out / f"{stem}.tex").write_text(tables.mode_latex_table(rows, labels, caption=tables.mode_caption(rows, labels, balanced), label="tab:modes_balanced" if balanced else "tab:modes"))
+    write_csv(args.out / f"{stem}.csv", tables.mode_csv_rows(rows, labels))
+    print("wrote", args.out / f"{stem}.tex", f"and {stem}.csv")
+    if balanced:
+        write_csv(args.out / "mode_classes.csv", classes)
+        print("wrote", args.out / "mode_classes.csv")
 
 
 def write_mode_ablation_table(args) -> None:

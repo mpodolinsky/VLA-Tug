@@ -154,14 +154,26 @@ REAL_CAPTION = (r" and on the real robot (GR00T on eight tasks, one held out at 
                 r"occur there, so the random baseline guesses among at most those)")
 
 
-def mode_caption(rows: list[ModeRow], settings: list[str] | None = None) -> str:
-    """``MODE_CAPTION`` with the range of the share of failures that get an alarm read from the rows, and the real robot described when it is one of
-    the ``settings`` (the window is 2.4 s on both datasets: six policy steps on LIBERO-X, 20 on the real robot)."""
+MODE_BALANCED_CAPTION = (r"Failure-mode prediction on LIBERO-XREAL: balanced top-1 and top-3 accuracy in \%, the mean over the failure classes of the share of their "
+                         r"failures predicted correctly, pooled over the splits of each kind. Rare modes are merged until every class holds at least 5\% of the "
+                         r"failures of its dataset, and the predictions of the mode head (trained on the 10 modes) are merged by summing their probabilities. Most "
+                         r"common: always the most common training class (top-3: the three most common); random: a uniform guess among the training classes. "
+                         r"Shaded rows are our probe (one architecture), by label variant. The predicted class is the one with the highest mean probability over the "
+                         r"WINDOW before an anchor step and the anchor itself: the probe's first alarm (own detection, max-conformal at $\alpha = 0.2$, scored on the "
+                         r"failures that have an alarm, COVERAGE of them) or the true failure onset (oracle onset, an upper bound a deployed system cannot reach, not "
+                         r"marked). Best in bold, second best in italics, among the rows other than the oracle.")
+REAL_BALANCED_CAPTION = r" and on the real robot (GR00T on eight tasks, one held out at a time, the mean over five seeds, 40 splits)"
+
+
+def mode_caption(rows: list[ModeRow], settings: list[str] | None = None, balanced: bool = False) -> str:
+    """``MODE_CAPTION`` (``MODE_BALANCED_CAPTION`` when ``balanced``) with the range of the share of failures that get an alarm read from the rows, and the real
+    robot described when it is one of the ``settings`` (the window is 2.4 s on both datasets: six policy steps on LIBERO-X, 20 on the real robot)."""
     shares = [v for r in rows if r.share for v in r.share if v is not None]
     coverage = rf"{min(shares):.0f} to {max(shares):.0f}\%" if shares else "see the CSV"
     real = REAL_ROBOT in (settings or [])
     window = "2.4 s (six steps on LIBERO-X, 20 on the real robot)" if real else "six steps"
-    return MODE_CAPTION.replace("COVERAGE", coverage).replace("REAL", REAL_CAPTION if real else "").replace("WINDOW", window)
+    template, real_text = (MODE_BALANCED_CAPTION, REAL_BALANCED_CAPTION) if balanced else (MODE_CAPTION, REAL_CAPTION)
+    return template.replace("COVERAGE", coverage).replace("REAL", real_text if real else "").replace("WINDOW", window)
 
 
 def mode_header(settings: list[str]) -> list[str]:

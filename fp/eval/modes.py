@@ -50,23 +50,33 @@ def hit(probs: np.ndarray, true: int, k: int) -> bool:
     return bool(true in np.argsort(-probs, kind="stable")[:k])
 
 
-def baseline_accuracy(train_modes: list[int], true: list[int], k: int) -> tuple[float, float]:
-    """(majority, random) top-k accuracy over the true modes ``true``: always the k most common training modes; a uniform guess of k distinct modes
-    among those that occur in the training failures (a true mode that never does can never be hit)."""
+def baseline_hits(train_modes: list[int], true: list[int], k: int) -> tuple[list[float], list[float]]:
+    """(majority, random) top-k hit of each true mode of ``true``: 1 or 0 for always predicting the k most common training modes; the probability of a hit for a
+    uniform guess of k distinct modes among those that occur in the training failures (a true mode that never does can never be hit)."""
     order = [m for m, _ in Counter(train_modes).most_common()]
     present = set(train_modes)
-    majority = float(np.mean([t in order[:k] for t in true]))
-    random = float(np.mean([(t in present) * min(k, len(present)) / len(present) for t in true]))
-    return majority, random
+    return [float(t in order[:k]) for t in true], [(t in present) * min(k, len(present)) / len(present) for t in true]
+
+
+def baseline_accuracy(train_modes: list[int], true: list[int], k: int) -> tuple[float, float]:
+    """(majority, random) top-k accuracy over the true modes ``true`` (the mean of ``baseline_hits``)."""
+    majority, random = baseline_hits(train_modes, true, k)
+    return float(np.mean(majority)), float(np.mean(random))
+
+
+def alarm_anchors(scores: Mapping[str, np.ndarray], episodes, keys: list[str], calibrator, alpha: float) -> tuple[list[str], dict[str, int | None]]:
+    """The failed episodes among ``keys`` and the alarm step of each (None without an alarm) at the calibrated threshold of level ``alpha``. Needs at least one
+    failed episode."""
+    failed = [k for k in keys if not episodes[k].success]
+    threshold = calibrator.threshold(alpha, max(len(scores[k]) for k in failed))
+    return failed, {k: alarm_step(scores[k], threshold) for k in failed}
 
 
 def evaluate_split(logits: Mapping[str, np.ndarray], scores: Mapping[str, np.ndarray], episodes, true_modes: Mapping[str, int], keys: list[str], calibrator,
                    alpha: float, window: int) -> dict:
     """Top-k accuracies of one probe on the failed episodes among ``keys``: ``oracle`` (all of them), ``detected`` and ``oracle_on_detected`` (those
     with an alarm; NaN if none), and ``coverage`` (the share with an alarm), for each k of ``TOP_K``. Needs at least one failed episode."""
-    failed = [k for k in keys if not episodes[k].success]
-    threshold = calibrator.threshold(alpha, max(len(scores[k]) for k in failed))
-    alarms = {k: alarm_step(scores[k], threshold) for k in failed}
+    failed, alarms = alarm_anchors(scores, episodes, keys, calibrator, alpha)
     detected = [k for k in failed if alarms[k] is not None]
 
     def accuracy(selected: list[str], anchor, k: int) -> float:
