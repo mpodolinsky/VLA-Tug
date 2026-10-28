@@ -56,9 +56,9 @@ def test_best_and_second_best_are_judged_on_the_displayed_numbers_and_ties_are_m
 
 
 def make_rows():
-    return [tables.Row("Ours (onset_pre)", True, "max_conformal", [(50.0, 1.0), (40.0, 2.0), None, (30.0, 0.5)], [5.0, 26.4, 0.0008]),
-            tables.Row("SAFE-LSTM", False, "safe_band", [(60.0, 1.5), (35.0, 2.5), (20.0, 1.0), (30.04, 0.0)], [39.1, 26.2, 0.0032]),
-            tables.Row("Euclidean", False, "safe_band", [(55.0, 1.0), (10.0, 1.0), (15.0, 1.0), (12.0, 1.0)], [0.4, 3056.0, 0.23])]
+    return [tables.Row("Ours (onset_pre)", True, "max_conformal", [(50.0, 1.0), (40.0, 2.0), None, (30.0, 0.5)], [5.0, 26.4, 0.12, 0.92]),
+            tables.Row("SAFE-LSTM", False, "safe_band", [(60.0, 1.5), (35.0, 2.5), (20.0, 1.0), (30.04, 0.0)], [39.1, 26.2, 0.067, 1.9]),
+            tables.Row("Euclidean", False, "safe_band", [(55.0, 1.0), (10.0, 1.0), (15.0, 1.0), (12.0, 1.0)], [0.4, 3056.0, 13.0, 374.0])]
 
 
 SETTINGS = ["LIBERO-X task", "LIBERO-10 π0.5"]
@@ -79,7 +79,7 @@ def test_the_latex_table_shades_our_rows_marks_the_best_and_second_best_and_esca
     assert r"\textbf{30.0}" in ours and r"\textbf{30.0}" in safe  # 30.0 and 30.04 display alike: both best
     assert ours.count("--") == 1  # the one missing area
     assert r"\textbf{0.4}" in next(line for line in lines if line.startswith("Euclidean"))  # the cheapest fit is the best in a cost column
-    assert r"\textbf{0.0008}" in ours and r"\textit{0.0032}" in safe
+    assert r"\textit{0.12}" in ours and r"\textbf{0.067}" in safe and r"\textbf{0.92}" in ours and r"\textit{1.90}" in safe  # the GPU latency: SAFE-LSTM best, ours second; the CPU latency: ours best
 
 
 def test_the_std_version_adds_the_spread_without_changing_what_is_marked():
@@ -114,7 +114,7 @@ def test_the_table_lists_the_baselines_first_and_ours_at_the_bottom_set_off_by_a
     kinds = [entries[label].kind == "ours" for label in figures.TABLE_LABELS]
     assert kinds == [False] * 8 + [True] and figures.TABLE_LABELS[-1] == "Ours (onset_pre)"  # only the headline variant, as the last row (the others: the ablation table)
     assert "Ours (onset_traj)" not in figures.TABLE_LABELS
-    rows = [tables.Row(label, entries[label].kind == "ours", "max_conformal", [(50.0, 1.0)] * 4, [1.0, 2.0, 0.5]) for label in figures.TABLE_LABELS]
+    rows = [tables.Row(label, entries[label].kind == "ours", "max_conformal", [(50.0, 1.0)] * 4, [1.0, 2.0, 0.5, 0.25]) for label in figures.TABLE_LABELS]
     tex = tables.latex_table(rows, SETTINGS)
     lines = [line for line in tex.splitlines() if line.startswith(("SAFE-LSTM", r"\rowcolor", r"\midrule"))]
     assert lines[0] == r"\midrule" and lines[1].startswith("SAFE-LSTM") and lines[2] == r"\midrule" and all(line.startswith(r"\rowcolor") for line in lines[3:])
@@ -417,14 +417,14 @@ def test_the_command_writes_the_tables_the_chosen_methods_and_the_two_curve_figu
     assert not any(line.startswith("SAFE-LSTM") for line in tex.splitlines())  # its grid has 12 configurations and only one was run: no row
     assert "skipped: LIBERO-10 GR00T / SAFE-LSTM" in capsys.readouterr().out
     stac = next(line for line in tex.splitlines() if line.startswith("STAC"))
-    assert "20.0" in stac and "21.0" in stac and stac.count("--") == 2 * len(figures.SETTINGS) - 2 + 3  # one setting has runs (2 area cells); the other area cells and, with no LIBERO-X runs, 3 costs are missing
+    assert "20.0" in stac and "21.0" in stac and stac.count("--") == 2 * len(figures.SETTINGS) - 2 + 4  # one setting has runs (2 area cells); the other area cells and, with no LIBERO-X runs and no latency file, 4 costs are missing
     assert (out / "table_main_std.tex").exists()
     chosen = (out / "chosen.csv").read_text()
     assert "LIBERO-10 GR00T,STAC,stac__mmd3_step,max_conformal" in chosen
     for stem in ("curves_tpr_early", "curves_tpr_on_time"):
         assert (out / f"{stem}.png").exists() and (out / f"{stem}.pdf").exists()
     header = (out / "table_main.csv").read_text().splitlines()[0]
-    assert header.startswith(f"method,calibrator,{figures.SETTINGS[0].label} seen mean") and header.endswith("Score (ms/step)")
+    assert header.startswith(f"method,calibrator,{figures.SETTINGS[0].label} seen mean") and header.endswith("CPU (ms)")
     assert [s.label for s in figures.SETTINGS] == ["LIBERO-10 π0.5", "LIBERO-10 GR00T", "LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill", "Real robot"]  # the requested order, the real robot last
 
 
@@ -586,3 +586,39 @@ def test_the_compact_curve_figures_also_cover_libero10_and_not_the_real_robot(re
     assert ("LIBERO-10 GR00T", "STAC") in chosen
     cli_figures.write_compact_curves(type("Args", (), {"out": tmp_path / "out", "root": results}), rows, chosen)
     assert (tmp_path / "out" / "curves_tpr_early_compact.png").exists()
+
+
+# ---------------------------------------------------------------- the online latency columns
+def latency_file(vla=True):
+    gpu, cpu = (lambda ms: {"median_ms": ms, "p99_ms": 2 * ms}), (lambda ms: {"median_ms": ms, "p99_ms": 2 * ms})
+    out = {"methods": {"m_task": {"gpu": gpu(0.1), "cpu4": cpu(1.0), "cpu1": cpu(2.0)}, "m_sig": {"gpu": gpu(0.3), "cpu4": cpu(3.0), "cpu1": cpu(5.0)},
+                       "stac__mmd3_step": {"gpu": None, "cpu4": cpu(0.03), "cpu1": cpu(0.03)}, "stac_single__cumsum": {"gpu": None, "cpu4": cpu(0.004), "cpu1": cpu(0.004)}}}
+    if vla:
+        out["vla_sampling"] = {"extra_ms": 21.0}
+    return out
+
+
+def test_the_latency_of_a_method_is_its_median_on_the_gpu_and_on_the_cpu_with_four_threads():
+    latency = latency_file()
+    assert figures.method_latency(latency, "m_task", "gpu") == 0.1 and figures.method_latency(latency, "m_task", "cpu") == 1.0
+    assert figures.method_latency(latency, "unknown", "gpu") is None and figures.method_latency(None, "m_task", "gpu") is None
+
+
+def test_stac_pays_for_sampling_its_plans_on_the_gpu_and_has_no_cpu_latency_while_stac_single_samples_nothing():
+    latency = latency_file()
+    assert figures.method_latency(latency, "stac__mmd3_step", "gpu") == pytest.approx(21.03) and figures.method_latency(latency, "stac__mmd3_step", "cpu") is None
+    assert figures.method_latency(latency_file(vla=False), "stac__mmd3_step", "gpu") is None  # without the measured sampling time, STAC has no number rather than a too low one
+    assert figures.method_latency(latency, "stac_single__cumsum", "gpu") == figures.method_latency(latency, "stac_single__cumsum", "cpu") == 0.004
+
+
+def test_an_entry_has_the_median_latency_of_the_methods_chosen_for_the_three_kinds_of_split():
+    chosen = {("LIBERO-X task", "E"): "m_task", ("LIBERO-X signature", "E"): "m_sig", ("LIBERO-X skill", "E"): "m_task"}
+    entry = figures.Entry("E", "safe", "solid")
+    assert figures.entry_latency(entry, chosen, latency_file()) == {"latency_gpu_ms": 0.1, "latency_cpu_ms": 1.0}  # median of 0.1, 0.3, 0.1 and of 1.0, 3.0, 1.0
+    assert figures.entry_latency(entry, chosen, None) == {"latency_gpu_ms": None, "latency_cpu_ms": None}
+    assert figures.entry_latency(figures.Entry("Z", "safe", "solid"), chosen, latency_file()) == {"latency_gpu_ms": None, "latency_cpu_ms": None}
+
+
+def test_the_main_table_has_the_gpu_and_cpu_latency_columns_in_place_of_the_batched_score_time():
+    assert [name for _, name, _ in tables.COST_COLUMNS] == ["Fit (s)", "State (MB)", "GPU (ms)", "CPU (ms)"]
+    assert "score_ms_per_step" not in [field for field, _, _ in tables.COST_COLUMNS] and "online latency" in tables.CAPTION and "ten plans" in tables.CAPTION

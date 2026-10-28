@@ -193,6 +193,34 @@ def entry_costs(entry: Entry, chosen: dict[tuple[str, str], str], costs: list[di
     return {f: (float(np.median([r[f] for r in runs if r[f] is not None])) if any(r[f] is not None for r in runs) else None) for f in COST_FIELDS}
 
 
+def method_latency(latency: dict | None, method: str, device: str) -> float | None:
+    """The median online latency (ms) of ``method`` on the ``device`` ('gpu', or 'cpu' with 4 threads) from the file of ``cli.latency``; None where it has none.
+    STAC is scored with numpy on the CPU and also samples K plans from the policy, which runs on the GPU: its GPU latency is its scoring time plus the recorded
+    sampling time (None without it) and it has no CPU latency; STAC-Single samples nothing."""
+    record = (latency or {}).get("methods", {}).get(method)
+    if record is None:
+        return None
+    family = method.split("__")[0]
+    if family in ("stac", "stac_single"):
+        score = record["cpu4"]["median_ms"]
+        if family == "stac_single":
+            return score
+        extra = (latency.get("vla_sampling") or {}).get("extra_ms")
+        return score + extra if device == "gpu" and extra is not None else None
+    measured = record["gpu" if device == "gpu" else "cpu4"]
+    return None if measured is None else measured["median_ms"]
+
+
+def entry_latency(entry: Entry, chosen: dict[tuple[str, str], str], latency: dict | None) -> dict[str, float | None]:
+    """Median over the methods chosen for the three kinds of LIBERO-X split of the online latency on the GPU and on the CPU (``method_latency``)."""
+    methods = [chosen[(f"LIBERO-X {kind}", entry.label)] for kind in LIBEROX_KINDS if (f"LIBERO-X {kind}", entry.label) in chosen]
+    out = {}
+    for field, device in (("latency_gpu_ms", "gpu"), ("latency_cpu_ms", "cpu")):
+        values = [v for v in (method_latency(latency, m, device) for m in methods) if v is not None]
+        out[field] = float(np.median(values)) if values else None
+    return out
+
+
 def benchmark_plan(chosen: dict[tuple[str, str], str], rows: list[dict], entries=ENTRIES) -> list[tuple[str, str, list[str]]]:
     """What to re-train to measure the costs of our probes: (architecture, label variant, LIBERO-X splits) for each of our entries and kind of
     split, with the architecture chosen for it."""

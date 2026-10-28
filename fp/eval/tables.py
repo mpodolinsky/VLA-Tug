@@ -10,7 +10,7 @@ The LaTeX needs booktabs and xcolor with the table option (\\rowcolor).
 from dataclasses import dataclass
 
 CALIBRATOR_CODES = {"max_conformal": "MC", "safe_band": "FC"}  # MC: max-conformal; FC: functional conformal (the SAFE band)
-COST_COLUMNS = (("fit_seconds", "Fit (s)", 1), ("state_mb", "State (MB)", 1), ("score_ms_per_step", "Score (ms/step)", 2))
+COST_COLUMNS = (("fit_seconds", "Fit (s)", 1), ("state_mb", "State (MB)", 1), ("latency_gpu_ms", "GPU (ms)", 2), ("latency_cpu_ms", "CPU (ms)", 2))
 MISSING = "--"
 
 
@@ -88,7 +88,8 @@ CAPTION = (r"Early failure detection on seen and unseen tasks. Each cell is the 
            r"pre-onset trajectory (\texttt{onset\_pre}) as the positive label (the other label variants are in the ablation table); it uses one "
            r"architecture in every setting. SAFE-LSTM and SAFE-MLP use one configuration on the three LIBERO-X splits and their best on validation "
            r"elsewhere; every other baseline uses the configuration with the best validation area in each setting. Cost, measured on LIBERO-X (lower is better): seconds to fit, megabytes kept to score "
-           r"a new episode, milliseconds per policy step. Real robot: GR00T on eight tasks, one task held out at a time, the mean over five seeds "
+           r"a new episode, and the online latency in milliseconds to score one policy step on a GPU and on a CPU (four threads); STAC's GPU latency includes "
+           r"sampling its ten plans from the policy, which it needs and no other method does, and it has no CPU latency. Real robot: GR00T on eight tasks, one task held out at a time, the mean over five seeds "
            r"(40 splits; the configurations are those chosen on seed 0); STAC, ActProbe and FailureSpot need the planned action chunks, which "
            r"were not saved there. Best in bold, second best in italics.")
 STD_CAPTION = r" Values after $\pm$ are the standard deviation over the splits."

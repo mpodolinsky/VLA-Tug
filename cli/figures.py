@@ -27,6 +27,7 @@ re-train the probes the table uses into --costs, which is then read for their co
 
 import argparse
 import csv
+import json
 from pathlib import Path
 
 from fp.calibration.protocol import calibrator_name
@@ -52,8 +53,8 @@ def table_rows(rows: list[dict], chosen: dict, costs: dict) -> list[tables.Row]:
             for eval_set in ("seen", "unseen"):
                 cell = figures.area_cell(rows, setting, method, eval_set) if method else None
                 areas.append(None if cell is None else (cell.mean, cell.std))
-        entry_cost = figures.entry_costs(entry, chosen, costs["ours" if entry.kind == "ours" else "baselines"])
-        out.append(tables.Row(label, entry.kind == "ours", calibrator_name(methods[0]), areas, [entry_cost[f] for f in figures.COST_FIELDS]))
+        entry_cost = figures.entry_costs(entry, chosen, costs["ours" if entry.kind == "ours" else "baselines"]) | figures.entry_latency(entry, chosen, costs["latency"])
+        out.append(tables.Row(label, entry.kind == "ours", calibrator_name(methods[0]), areas, [entry_cost[name] for name, _, _ in tables.COST_COLUMNS]))
     return out
 
 
@@ -70,6 +71,7 @@ def main() -> None:
     p.add_argument("--root", type=Path, default=RESULTS)
     p.add_argument("--out", type=Path, default=RESULTS / "figures")
     p.add_argument("--costs", type=Path, default=RESULTS / "cost_benchmark", help="runs of our probes re-trained to measure their costs")
+    p.add_argument("--latency", type=Path, default=RESULTS / "latency" / "latency.json", help="online latencies of the methods (python -m cli.latency)")
     p.add_argument("--print-benchmark", action="store_true", help="print the commands that re-train the probes the table uses, and stop")
     args = p.parse_args()
 
@@ -99,7 +101,10 @@ def main() -> None:
 
 def write_main_table(args, rows: list[dict], chosen: dict) -> None:
     costs = {"baselines": collect_costs(args.root, ("liberox_groot",)),
-             "ours": collect_costs(args.costs, ("liberox_groot",)) if args.costs.exists() else []}
+             "ours": collect_costs(args.costs, ("liberox_groot",)) if args.costs.exists() else [],
+             "latency": json.loads(args.latency.read_text()) if args.latency.exists() else None}
+    if costs["latency"] is None:
+        print(f"no latency file {args.latency} (python -m cli.latency): the latency columns are left empty")
     settings = [s.label for s in figures.SETTINGS]
     table = table_rows(rows, chosen, costs)
     (args.out / "table_main.tex").write_text(tables.latex_table(table, settings))
