@@ -488,6 +488,43 @@ def ltt_csv_rows(rows: list[LttRow]) -> list[dict]:
     return out
 
 
+# ---------------------------------------------------------------- the failure time moved later
+ONSET_SHIFT_CAPTION = (r"Early-detection area (TPR early against FPR up to 40\%, in \%, higher is better) on the SET episodes when the failure time of every failed episode "
+                       r"is moved later by 0, 1 and 2\,s, the mean over the splits of each setting. The saved scores are scored again against the shifted failure times, "
+                       r"with the same configurations and thresholds as the main table; nothing is retrained. Ours is shaded. "
+                       r"Best in bold, second best in italics, in each column.")
+
+
+@dataclass(frozen=True)
+class ShiftRow:
+    label: str
+    ours: bool
+    values: list[float | None]  # for each setting, the area at each shift
+
+
+def onset_shift_latex_table(rows: list[ShiftRow], settings: list[str], shifts: list[float], eval_set: str, caption: str | None = None, label: str = "tab:onset_shift",
+                            source: str = "python -m cli.onset_shift") -> str:
+    """The table of ``cli.onset_shift`` as a full-width ``table*`` float (see ``latex_table``): a group of columns per setting with a column per shift, best and second
+    best marked in each column, ours shaded."""
+    n, k = len(settings) * len(shifts), len(shifts)
+    column_marks = [marks([r.values[i] for r in rows], 1, True) for i in range(n)]
+    header = [r"\begin{tabular}{l" + "r" * n + "}", r"\toprule", " & " + " & ".join(rf"\multicolumn{{{k}}}{{c}}{{{escape(s)}}}" for s in settings) + r" \\",
+              "".join(rf"\cmidrule(lr){{{2 + k * i}-{1 + k * (i + 1)}}}" for i in range(len(settings))),
+              "Method & " + " & ".join((f"+{s:g}\\,s" if s else "0\\,s") for _ in settings for s in shifts) + r" \\", r"\midrule"]
+    lines, previous_ours = list(header), rows[0].ours if rows else False
+    for j, r in enumerate(rows):
+        if j and r.ours != previous_ours:
+            lines.append(r"\midrule")
+        previous_ours = r.ours
+        cells = [MISSING if v is None else style(number(v, 1), column_marks[i][j]) for i, v in enumerate(r.values)]
+        lines.append((r"\rowcolor{gray!15} " if r.ours else "") + f"{escape(r.label)} & " + " & ".join(cells) + r" \\")
+    lines += [r"\bottomrule", r"\end{tabular}"]
+    caption = caption or ONSET_SHIFT_CAPTION.replace("SET", eval_set)
+    return "\n".join([f"% {source}: read from results/, see docs/FIGURES.md; needs booktabs, graphicx and xcolor with the table option", r"\begin{table*}[t]", r"\centering",
+                      rf"\caption{{{caption}}}", rf"\label{{{label}}}", r"\setlength{\tabcolsep}{4pt}", r"\resizebox{\textwidth}{!}{%", "\n".join(lines) + "%", "}",
+                      r"\end{table*}", ""])
+
+
 # ---------------------------------------------------------------- the ablation table
 ABLATION_CAPTION = (r"Ablations of our probe in the simulated settings (LIBERO-10 with $\pi_{0.5}$ and with GR00T, and the three kinds of LIBERO-X held-out set): "
                     r"the area under the curve of TPR early against FPR up to 40\% (in \%, higher is better), the mean "
