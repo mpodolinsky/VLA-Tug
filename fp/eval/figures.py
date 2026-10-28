@@ -88,7 +88,8 @@ ENTRIES = (
 TABLE_LABELS = ("SAFE-LSTM", "SAFE-MLP", "STAC", "ActProbe", "FailureSpot", "Mahalanobis", "Euclidean", "PCA-KMeans",  # the table's rows, top to bottom:
                 "Ours (onset_pre)")  # the baselines, then ours at the bottom (the other label variants are in the ablation table)
 COMPACT_LABELS = ("Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot")  # the methods of the compact curve figures
-COMPACT_SCALE = 0.5  # their height relative to the full figures' (their width is the same; same font sizes, so the text is relatively larger)
+COMPACT_FONT_SCALE = 1.25  # their font sizes relative to the full figures' (9 pt text and legend, 10 pt titles): 11.25 and 12.5 pt
+COMPACT_SCALE = 1.0  # their height relative to a figure of two rows of panels (2 x 2.9 in): 5.8 in (it was 0.5 and 2.9 in; their width is 15 in, as the full figures')
 
 
 def require_runs(rows: list[dict], setting: Setting, method: str) -> str:

@@ -17,7 +17,7 @@ The paper's main table and curve figures, from the evaluated runs under results/
                              the unseen tasks below
     curves_tpr_on_time       the same with the on-time TPR
     curves_tpr_early_compact smaller versions of the two curve figures (also curves_tpr_on_time_compact): the five simulated settings (LIBERO-10 with pi0.5 and
-                             with GR00T, the three LIBERO-X kinds) at the width of the full figures and half their height, and only ours (onset_pre), the two
+                             with GR00T, the three LIBERO-X kinds; every panel is titled with the benchmark, the policy and the split: LIBERO-10 pi0.5 / leave-three-out, LIBERO-X GR00T / new-task, ...) at the width of the full figures, 15 in by 5.8 in, and only ours (onset_pre), the two
                              SAFE models, the two STAC variants, ActProbe and FailureSpot; the full figures are written too
 
 Each method is, in each setting, the configuration with the best mean validation area (one architecture for all of our rows and one LIBERO-X
@@ -176,7 +176,7 @@ def write_mode_ablation_table(args) -> None:
 
 
 def write_curves(args, rows: list[dict], chosen: dict, settings=figures.SETTINGS, entries=figures.ENTRIES, suffix: str = "",
-                 panel_width: float = plots.PANEL_WIDTH, legend_rows: int = 2, height_scale: float = 1.0) -> None:
+                 panel_width: float = plots.PANEL_WIDTH, legend_rows: int = 2, height_scale: float = 1.0, font_scale: float = 1.0) -> None:
     """The two curve figures (TPR early and on-time TPR) for ``settings`` and ``entries``, written as curves_<metric><suffix>."""
     for metric, ylabel in (("tpr_early", "TPR early (%)"), ("tpr_on_time", "TPR on-time (%)")):
         panels = []
@@ -184,21 +184,21 @@ def write_curves(args, rows: list[dict], chosen: dict, settings=figures.SETTINGS
             curves = {(s.label, e.label): figures.mean_curve(rows, s, chosen[(s.label, e.label)], eval_set, metric, args.root)
                       for s in settings for e in entries if (s.label, e.label) in chosen}
             panels.append((row_label, curves))
-        fig = plots.curves_figure(panels, list(settings), list(entries), ylabel, panel_width, legend_rows, height_scale)
+        fig = plots.curves_figure(panels, list(settings), list(entries), ylabel, panel_width, legend_rows, height_scale, font_scale)
         print("wrote", *plots.save(fig, f"curves_{metric}{suffix}", args.out))
 
 
 def write_compact_curves(args, rows: list[dict], chosen: dict) -> None:
     """The curve figures again, smaller: the simulated settings (five panels per row; the real robot is left out) and the methods of ``figures.COMPACT_LABELS``,
     with the legend in a single row. The figure has the width of the full figures (each panel is as many times wider as there are fewer panels) and
-    ``figures.COMPACT_SCALE`` times their height; the font sizes are the same. Skipped with a message when there is no curve of these settings."""
+    ``figures.COMPACT_SCALE`` times their height; the font sizes are ``figures.COMPACT_FONT_SCALE`` times larger. Skipped with a message when there is no curve of these settings."""
     settings = figures.SIMULATED_SETTINGS
     entries = [e for e in figures.ENTRIES if e.label in figures.COMPACT_LABELS]
     if not any((s.label, e.label) in chosen for s in settings for e in entries):
         print("no curves of the simulated settings: the compact curve figures are skipped")
         return
     write_curves(args, rows, chosen, settings, entries, "_compact", plots.PANEL_WIDTH * len(figures.SETTINGS) / len(settings), legend_rows=1,
-                 height_scale=figures.COMPACT_SCALE)
+                 height_scale=figures.COMPACT_SCALE, font_scale=figures.COMPACT_FONT_SCALE)
 
 
 if __name__ == "__main__":

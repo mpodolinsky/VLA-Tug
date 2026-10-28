@@ -327,7 +327,7 @@ def test_seen_is_the_top_row_unseen_the_bottom_one_and_one_legend_below_has_no_c
     top, bottom = fig.axes[:n], fig.axes[n:2 * n]
     assert len(fig.axes) == 2 * n and len({round(ax.get_position().y0, 3) for ax in top}) == len({round(ax.get_position().y0, 3) for ax in bottom}) == 1
     assert top[0].get_position().y0 > bottom[0].get_position().y0  # seen above unseen
-    assert [ax.get_title() for ax in top] == [s.label for s in figures.SETTINGS] and not any(ax.get_title() for ax in bottom)  # names above the top row only
+    assert [ax.get_title() for ax in top] == [plots.PANEL_TITLES.get(s.label, s.label).split("\n")[0] for s in figures.SETTINGS] and not any(ax.get_title() or ax.texts for ax in bottom)  # names above the top row only
     assert all(ax.get_xlabel() == "FPR (%)" for ax in bottom) and not any(ax.get_xlabel() for ax in top)
     assert top[0].get_ylabel() == "Seen tasks\nTPR early (%)" and bottom[0].get_ylabel() == "Unseen tasks\nTPR early (%)"
     assert not any(ax.get_ylabel() for ax in top[1:] + bottom[1:])
@@ -548,8 +548,8 @@ def test_the_compact_curve_figures_are_the_simulated_settings_with_the_compact_m
     assert ("LIBERO-X task", "Ours (onset_traj)") in chosen
     calls, original = [], plots.curves_figure
 
-    def spy(panels, settings, entries, ylabel, panel_width=plots.PANEL_WIDTH, legend_rows=2, height_scale=1.0):
-        fig = original(panels, settings, entries, ylabel, panel_width, legend_rows, height_scale)
+    def spy(panels, settings, entries, ylabel, panel_width=plots.PANEL_WIDTH, legend_rows=2, height_scale=1.0, font_scale=1.0):
+        fig = original(panels, settings, entries, ylabel, panel_width, legend_rows, height_scale, font_scale)
         calls.append((panels, settings, entries, panel_width, tuple(fig.get_size_inches()), fig.legends[0]._ncols, fig.legends[0].get_texts()[0].get_fontsize()))
         return fig
 
@@ -563,8 +563,8 @@ def test_the_compact_curve_figures_are_the_simulated_settings_with_the_compact_m
     assert [e.label for e in entries] == ["Ours (onset_pre)", "SAFE-LSTM", "SAFE-MLP", "STAC", "STAC-Single", "ActProbe", "FailureSpot"]
     assert panel_width == pytest.approx(1.2 * plots.PANEL_WIDTH)  # wider panels, five instead of six
     assert width == pytest.approx(plots.PANEL_WIDTH * len(figures.SETTINGS)) and width == pytest.approx(15.0)  # the width of the six-panel figure
-    assert figures.COMPACT_SCALE == 0.5 and height == pytest.approx(figures.COMPACT_SCALE * 2 * plots.PANEL_HEIGHT) and height == pytest.approx(2.9)  # half its height
-    assert legend_font == 9  # the figure is wide enough for the usual legend spacing
+    assert figures.COMPACT_SCALE == 1.0 and height == pytest.approx(figures.COMPACT_SCALE * 2 * plots.PANEL_HEIGHT) and height == pytest.approx(5.8)  # two rows of panels of 2.9 in
+    assert legend_font == pytest.approx(9 * figures.COMPACT_FONT_SCALE) and figures.COMPACT_FONT_SCALE == 1.25  # the figure is wide enough for the usual legend spacing, at a larger font
     assert legend_columns == 2  # a single legend row: one column per method drawn (STAC and ActProbe here; two rows would make it one column)
     assert {entry for _, entry in panels[0][1]} == {"STAC", "ActProbe"}  # our onset_traj probe has a curve in the data but is not drawn
     for stem in ("curves_tpr_early_compact", "curves_tpr_on_time_compact"):
@@ -622,3 +622,46 @@ def test_an_entry_has_the_median_latency_of_the_methods_chosen_for_the_three_kin
 def test_the_main_table_has_the_gpu_and_cpu_latency_columns_in_place_of_the_batched_score_time():
     assert [name for _, name, _ in tables.COST_COLUMNS] == ["Fit (s)", "State (MB)", "GPU (ms)", "CPU (ms)"]
     assert "score_ms_per_step" not in [field for field, _, _ in tables.COST_COLUMNS] and "online latency" in tables.CAPTION and "ten plans" in tables.CAPTION
+
+
+def test_the_panels_of_the_libero_x_splits_are_titled_with_the_names_of_the_splits_and_the_other_settings_keep_their_labels():
+    settings = [s for s in figures.SETTINGS if s.dataset in ("libero10_groot", "liberox_groot")]
+    entries = list(figures.ENTRIES[:2])
+    fig = plots.curves_figure(one_row(settings, entries), settings, entries, "y")
+    titles = [(ax.get_title(), [t.get_text() for t in ax.texts]) for ax in fig.axes if ax.get_title()]
+    assert titles == [("LIBERO-10 GR00T", ["leave-three-out"]), ("LIBERO-X GR00T", ["new-task"]), ("LIBERO-X GR00T", ["new-signature"]), ("LIBERO-X GR00T", ["new-skill"])]
+    assert [s.label for s in settings][1:] == ["LIBERO-X task", "LIBERO-X signature", "LIBERO-X skill"]  # the labels of the tables and of the cache keys are unchanged
+    matplotlib.pyplot.close("all")
+
+
+def test_every_title_says_the_benchmark_the_policy_and_the_split_in_the_same_way():
+    assert set(plots.PANEL_TITLES) == {s.label for s in figures.SETTINGS}
+    for setting in figures.SETTINGS:
+        first, split = plots.PANEL_TITLES[setting.label].split("\n")  # two lines: benchmark and policy, then the split
+        assert first.startswith(("LIBERO-10", "LIBERO-X", "Real robot")) and ("π0.5" in first or "GR00T" in first) and split in ("leave-three-out", "leave-one-out", "new-task", "new-signature", "new-skill")
+
+
+def test_the_split_names_of_libero_x_are_coloured_as_in_the_paper_and_the_other_split_names_stay_black():
+    settings = [s for s in figures.SETTINGS if s.dataset in ("libero10_groot", "liberox_groot")]
+    entries = list(figures.ENTRIES[:2])
+    fig = plots.curves_figure(one_row(settings, entries), settings, entries, "y")
+    colours = {ax.texts[0].get_text(): matplotlib.colors.to_hex(ax.texts[0].get_color()) for ax in fig.axes if ax.texts}
+    assert colours == {"leave-three-out": "#000000", "new-task": "#de8e46", "new-signature": "#4a8c64", "new-skill": "#3e5496"}  # taskOrange, sigGreen, skillNavy
+    assert all(ax.title.get_color() == plots.INK for ax in fig.axes if ax.get_title())  # the first line of every title is black
+    assert tuple(round(255 * c) for c in matplotlib.colors.to_rgb(plots.SPLIT_COLORS["LIBERO-X task"])) == (222, 142, 70)
+    assert tuple(round(255 * c) for c in matplotlib.colors.to_rgb(plots.SPLIT_COLORS["LIBERO-X signature"])) == (74, 140, 100)
+    assert tuple(round(255 * c) for c in matplotlib.colors.to_rgb(plots.SPLIT_COLORS["LIBERO-X skill"])) == (62, 84, 150)
+    matplotlib.pyplot.close("all")
+
+
+def test_the_font_scale_enlarges_every_text_of_a_curve_figure_and_leaves_its_size_alone():
+    entries = list(figures.ENTRIES[:5])
+    args = (one_row(figures.SETTINGS[:2], entries), list(figures.SETTINGS[:2]), entries, "y")
+    normal, larger = plots.curves_figure(*args), plots.curves_figure(*args, font_scale=1.25)
+    assert tuple(larger.get_size_inches()) == tuple(normal.get_size_inches())
+    pairs = [(normal.axes[0].title.get_fontsize(), larger.axes[0].title.get_fontsize()), (normal.axes[0].xaxis.label.get_fontsize(), larger.axes[0].xaxis.label.get_fontsize()),
+             (normal.axes[0].get_xticklabels()[0].get_fontsize(), larger.axes[0].get_xticklabels()[0].get_fontsize()),
+             (normal.legends[0].get_texts()[0].get_fontsize(), larger.legends[0].get_texts()[0].get_fontsize()), (normal.axes[0].texts[0].get_fontsize(), larger.axes[0].texts[0].get_fontsize())]
+    assert all(b == pytest.approx(1.25 * a) for a, b in pairs)  # titles, axis labels, tick labels, the legend and the split names
+    matplotlib.pyplot.close("all")
+    plots.style_axes()  # the default style again for the other tests

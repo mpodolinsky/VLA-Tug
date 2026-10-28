@@ -31,6 +31,12 @@ INK, GRID_COLOR = "#000000", "#e6e5e1"
 WIDTH = {"ours": 2.4}
 DEFAULT_WIDTH = 1.1
 PANEL_WIDTH, PANEL_HEIGHT = 2.5, 2.9  # inches per panel
+PANEL_TITLES = {  # the title of the panel of each setting: the benchmark and the policy, then the held-out split, with the names used in the text
+    "LIBERO-10 π0.5": "LIBERO-10 π0.5\nleave-three-out", "LIBERO-10 GR00T": "LIBERO-10 GR00T\nleave-three-out", "LIBERO-X task": "LIBERO-X GR00T\nnew-task",
+    "LIBERO-X signature": "LIBERO-X GR00T\nnew-signature", "LIBERO-X skill": "LIBERO-X GR00T\nnew-skill", "Real robot": "Real robot GR00T\nleave-one-out"}  # any other setting keeps its label
+SPLIT_COLORS = {"LIBERO-X task": "#DE8E46", "LIBERO-X signature": "#4A8C64", "LIBERO-X skill": "#3E5496"}  # the colour of the split name in a title: taskOrange, sigGreen and skillNavy
+# of the paper (RGB 222,142,70, 74,140,100 and 62,84,150); the other settings' split names stay black
+TITLE_LINE, SPLIT_OFFSET = 1.3, 4  # the split name is drawn 4 points over the panel and the first title line 1.3 font heights above that, so the gap grows with the font
 LEGEND_INCHES = 0.5  # height reserved below the panels for the legend
 NARROW_FIGURE = 9.0  # inches: below this width a single row of seven legend entries does not fit at the usual spacing
 PPV_PANEL = (3.0, 2.8)  # inches per panel of the PPV figure
@@ -41,11 +47,22 @@ def color_of(entry: Entry):
     return matplotlib.colormaps["viridis"](VIRIDIS_AT[entry.variant]) if entry.kind == "ours" else NEUTRAL[entry.kind]
 
 
-def style_axes() -> None:
-    plt.rcParams.update({"font.size": 9, "axes.edgecolor": INK, "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK, "text.color": INK,
+def style_axes(scale: float = 1.0) -> None:
+    """The style of the figures; ``scale`` multiplies the font sizes (9 pt for the text, 10 pt for the titles)."""
+    plt.rcParams.update({"font.size": 9 * scale, "axes.edgecolor": INK, "axes.labelcolor": INK, "xtick.color": INK, "ytick.color": INK, "text.color": INK,
                          "axes.spines.top": False, "axes.spines.right": False, "axes.grid": True, "axes.grid.axis": "y", "axes.axisbelow": True,
-                         "grid.color": GRID_COLOR, "grid.linewidth": 0.6, "axes.titlesize": 10, "axes.titlecolor": INK, "legend.frameon": False,
+                         "grid.color": GRID_COLOR, "grid.linewidth": 0.6, "axes.titlesize": 10 * scale, "axes.titlecolor": INK, "legend.frameon": False,
                          "pdf.fonttype": 42, "ps.fonttype": 42})  # 42: the font is embedded as TrueType, not as outlines of Type 3 glyphs
+
+
+def set_panel_title(ax, label: str) -> None:
+    """The title of the panel of the setting ``label``: its first line (``PANEL_TITLES``) as the title and the second, the held-out split, as a text of its own under it
+    in the colour of the split (``SPLIT_COLORS``; a title cannot be coloured in parts). A setting without a table entry gets its label as a one-line title."""
+    first, _, split = PANEL_TITLES.get(label, label).partition("\n")
+    ax.set_title(first, pad=SPLIT_OFFSET + TITLE_LINE * ax.title.get_fontsize() if split else matplotlib.rcParams["axes.titlepad"])
+    if split:
+        ax.annotate(split, xy=(0.5, 1.0), xycoords="axes fraction", xytext=(0, SPLIT_OFFSET), textcoords="offset points", ha="center", va="bottom",
+                    color=SPLIT_COLORS.get(label, INK), fontsize=ax.title.get_fontsize())
 
 
 def line_kwargs(entry: Entry) -> dict:
@@ -53,14 +70,15 @@ def line_kwargs(entry: Entry) -> dict:
 
 
 def curves_figure(rows: list[tuple[str, dict[tuple[str, str], list[float]]]], settings: list[Setting], entries: list[Entry], ylabel: str,
-                  panel_width: float = PANEL_WIDTH, legend_rows: int = 2, height_scale: float = 1.0) -> Figure:
+                  panel_width: float = PANEL_WIDTH, legend_rows: int = 2, height_scale: float = 1.0, font_scale: float = 1.0) -> Figure:
     """``rows`` is a list of (row label, curves), top to bottom; ``curves[(setting label, entry label)]`` is the mean curve on ``GRID`` (percent)
     and entries or settings without one are left out. One panel per setting in each row, the setting names above the top row, the FPR label
     below the bottom one, the row label with ``ylabel`` on the left; the legend below, one entry per method drawn (in the order of ``entries``).
     Each panel is ``panel_width`` inches wide (a figure with fewer settings can keep the width of a full one by making its panels wider); the legend
     has ``legend_rows`` rows. ``height_scale`` shrinks the height of the panels and the room for the legend, not the width and not the text, which is then
-    larger relative to the figure. A figure narrower than ``NARROW_FIGURE`` sets the legend entries closer together so that a single row still fits."""
-    style_axes()
+    larger relative to the figure. ``font_scale`` multiplies all font sizes (``style_axes``) and the legend's. A figure narrower than ``NARROW_FIGURE`` sets the legend
+    entries closer together so that a single row still fits."""
+    style_axes(font_scale)
     n_rows = len(rows)
     height = PANEL_HEIGHT * n_rows * height_scale
     width = panel_width * len(settings)
@@ -78,13 +96,14 @@ def curves_figure(rows: list[tuple[str, dict[tuple[str, str], list[float]]]], se
             ax.set_xlim(0, FPR_MAX)
             ax.set_ylim(bottom=0)
             if r == 0:
-                ax.set_title(setting.label)
+                set_panel_title(ax, setting.label)
             if r == n_rows - 1:
                 ax.set_xlabel("FPR (%)")
         row_axes[0].set_ylabel(f"{row_label}\n{ylabel}")
     shown = [e for e in entries if e in drawn]
     fig.tight_layout(rect=(0, LEGEND_INCHES * height_scale / height, 1, 1))
-    spacing = dict(fontsize=9, handlelength=2.8, columnspacing=1.6) if width >= NARROW_FIGURE else dict(fontsize=8.5, handlelength=1.8, columnspacing=0.9, handletextpad=0.5)
+    spacing = (dict(fontsize=9 * font_scale, handlelength=2.8, columnspacing=1.6) if width >= NARROW_FIGURE
+               else dict(fontsize=8.5 * font_scale, handlelength=1.8, columnspacing=0.9, handletextpad=0.5))
     fig.legend([Line2D([], [], **line_kwargs(e)) for e in shown], [e.label for e in shown], loc="lower center", ncol=max(1, math.ceil(len(shown) / legend_rows)),
                labelspacing=0.5, bbox_to_anchor=(0.5, 0.0), **spacing)
     return fig
