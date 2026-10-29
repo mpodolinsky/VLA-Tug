@@ -43,7 +43,9 @@ def main() -> None:
     x, episode, step = tsne.states(config["dataset"], keys, config["embedding"], config["split"], config["method"], args.root, layer=config.get("layer") or "hidden")
     if not (np.array_equal(episode, points["episode"]) and np.array_equal(step, points["step"])):
         sys.exit("the states do not line up with the saved points")
-    reduced, _ = tsne.pca_reduce(x, args.fit_dim, config["seed"])
+    which = config.get("fit_set") or "all"  # the axes of the plots and the reduction of the VLA embedding use the same rows
+    fit = tsne.fit_rows(keys, episode, step, points["onset"], inputs.splits[config.get("fit_split") or config["split"] or split], which)
+    reduced, _ = tsne.pca_reduce(x, args.fit_dim, config["seed"], fit=fit)
     masks = tsne.subset_masks(keys, inputs.splits[split])
     rows = []
     for subset in tsne.SUBSETS:

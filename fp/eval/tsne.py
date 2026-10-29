@@ -29,6 +29,7 @@ PERPLEXITY = 50
 PCA_FIT_POINTS = 40_000  # the PCA is fitted on this many random points
 CHUNK = 20_000  # rows handled at a time, so that the float64 arithmetic never holds more than a few hundred MB
 SUBSETS = ("all", "seen", "seen_held_out", "unseen")
+FIT_SETS = ("all", "train_pre")  # the rows the axes of a PCA are fitted on: every point, or the pre-failure steps of the training episodes
 LAYERS = ("hidden", "mode_hidden", "score_hidden", "clip")  # the layers of the probe whose activations are embedded
 
 
@@ -87,33 +88,56 @@ def episode_means(x: np.ndarray, episode: np.ndarray, table: dict[str, np.ndarra
     return means, np.arange(len(last), dtype=np.int32), last
 
 
-def standardise_all(x: np.ndarray) -> np.ndarray:
-    """Every column to zero mean and unit standard deviation (plus 1e-6) over all points, in place, with float64 sums over chunks of rows."""
+def standardise_all(x: np.ndarray, fit: np.ndarray | None = None) -> np.ndarray:
+    """Every column to zero mean and unit standard deviation (plus 1e-6), in place, with float64 sums over chunks of rows. The statistics are those of the rows of the boolean mask
+    ``fit`` (default: all rows); every row is standardised with them."""
     total = square = 0.0
+    count = 0
     for i in range(0, len(x), CHUNK):
-        chunk = x[i : i + CHUNK].astype(np.float64)
-        total, square = total + chunk.sum(axis=0), square + (chunk**2).sum(axis=0)
-    mean = total / len(x)
-    std = np.sqrt(np.maximum(square / len(x) - mean**2, 0.0)) + 1e-6
+        chunk = x[i : i + CHUNK] if fit is None else x[i : i + CHUNK][fit[i : i + CHUNK]]
+        chunk = chunk.astype(np.float64)
+        total, square, count = total + chunk.sum(axis=0), square + (chunk**2).sum(axis=0), count + len(chunk)
+    if count == 0:
+        raise ValueError("no row to fit the standardisation on")
+    mean = total / count
+    std = np.sqrt(np.maximum(square / count - mean**2, 0.0)) + 1e-6
     for i in range(0, len(x), CHUNK):
         x[i : i + CHUNK] = standardise(x[i : i + CHUNK], mean, std)
     return x
 
 
-def pca_reduce(x: np.ndarray, components: int, seed: int = 0, fit_points: int = PCA_FIT_POINTS):
-    """(the rows of ``x`` on the first ``components`` principal axes as float32, the fitted PCA): ``x`` is standardised in place and the PCA is fitted on ``fit_points`` random rows."""
+def pca_reduce(x: np.ndarray, components: int, seed: int = 0, fit_points: int = PCA_FIT_POINTS, fit: np.ndarray | None = None):
+    """(the rows of ``x`` on the first ``components`` principal axes as float32, the fitted PCA): ``x`` is standardised in place and the PCA is fitted on ``fit_points`` random rows;
+    with the boolean mask ``fit`` both use only those rows (the axes then do not depend on the others, which are projected onto them like all rows)."""
     from sklearn.decomposition import PCA
 
-    x = standardise_all(x)
-    sample = x[np.random.default_rng(seed).choice(len(x), size=min(fit_points, len(x)), replace=False)]
+    x = standardise_all(x, fit)
+    if fit is None:
+        sample = x[np.random.default_rng(seed).choice(len(x), size=min(fit_points, len(x)), replace=False)]
+    else:
+        rows = np.flatnonzero(fit)
+        sample = x[rows[np.random.default_rng(seed).choice(len(rows), size=min(fit_points, len(rows)), replace=False)]]
     pca = PCA(n_components=min(components, x.shape[1], len(sample)), random_state=seed).fit(sample)
     return np.concatenate([pca.transform(x[i : i + CHUNK]) for i in range(0, len(x), CHUNK)]).astype(np.float32), pca
 
 
-def pca_axes(x: np.ndarray, n: int = 2, seed: int = 0, fit_points: int = PCA_FIT_POINTS) -> tuple[np.ndarray, np.ndarray]:
-    """((N, n) the rows of ``x`` on the first ``n`` principal axes, the share of the variance of the (standardised) rows each of them holds): a projection that is linear, so that
-    states that are close stay close and an episode traces a path."""
-    reduced, pca = pca_reduce(x, n, seed, fit_points)
+def fit_rows(keys: list[str], episode: np.ndarray, step: np.ndarray, onset: np.ndarray, split: Split, which: str) -> np.ndarray | None:
+    """The rows the axes of a PCA are fitted on (``FIT_SETS``): None for ``all`` (every point, the first default), for ``train_pre`` a boolean mask over the points of the training
+    episodes of ``split``, up to the failure step of a failure (``onset`` is the failure step of each episode, negative for a success) and every step of a success: the episodes and
+    steps the probe was trained on, so that the unseen episodes play no part in the axes."""
+    if which not in FIT_SETS:
+        raise ValueError(f"unknown fit set {which!r}; choose from {FIT_SETS}")
+    if which == "all":
+        return None
+    train = set(split.train)
+    own = onset[episode]
+    return np.array([k in train for k in keys])[episode] & ((own < 0) | (step <= own))
+
+
+def pca_axes(x: np.ndarray, n: int = 2, seed: int = 0, fit_points: int = PCA_FIT_POINTS, fit: np.ndarray | None = None) -> tuple[np.ndarray, np.ndarray]:
+    """((N, n) the rows of ``x`` on the first ``n`` principal axes, the share of the variance of the (standardised) rows each of them holds, of the ``fit`` rows if given): a
+    projection that is linear, so that states that are close stay close and an episode traces a path."""
+    reduced, pca = pca_reduce(x, n, seed, fit_points, fit)
     return reduced, pca.explained_variance_ratio_
 
 

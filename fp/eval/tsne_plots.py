@@ -36,6 +36,8 @@ PC3 with the share of the variance each holds, as the arrows of the 2D plots of 
 Subsets (``fp.eval.tsne.subset_masks``): all, seen, seen_held_out, unseen, each a mask over the same points. The axis limits are those of all the points.
 """
 
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 import matplotlib
@@ -61,12 +63,14 @@ POINT_SIZE, DPI, SIZE = 0.8, 200, 6.5  # marker area (points squared), resolutio
 RAMP_Y = 0.05  # the bottom of the colour ramps, as a fraction of the figure height
 MODE_LEGEND_Y, MODE_LEGEND_STEP = 0.185, 0.03  # the first row of the mode legend and the distance between rows, as fractions of the figure height
 BOTTOM = {"task": 0.02, "skill": 0.09, "outcome": 0.11, "mode": 0.23, "outcome_ellipses_late": 0.08, "outcome_ellipses_all": 0.08, "mode_ellipses_late": 0.2, "mode_ellipses_all": 0.2,
-          "outcome_gaussians_late": 0.08, "outcome_gaussians_all": 0.08, "mode_gaussians_late": 0.2, "mode_gaussians_all": 0.2, "outcome_ellipses_path": 0.09, "mode_ellipses_path": 0.21, "outcome_ellipses_paths": 0.1, "mode_ellipses_paths": 0.24, "outcome_ellipses_post": 0.08, "mode_ellipses_post": 0.2, "outcome_ellipses_pre": 0.08, "mode_ellipses_pre": 0.2}  # the bottom of the plot of each colouring: room for its legend and ramps
+          "outcome_gaussians_late": 0.08, "outcome_gaussians_all": 0.08, "mode_gaussians_late": 0.2, "mode_gaussians_all": 0.2,
+          "outcome_gaussians_pre": 0.08, "mode_gaussians_pre": 0.2, "outcome_ellipses_path": 0.09, "mode_ellipses_path": 0.21, "outcome_ellipses_paths": 0.1, "mode_ellipses_paths": 0.24, "outcome_ellipses_post": 0.08, "mode_ellipses_post": 0.2, "outcome_ellipses_pre": 0.08, "mode_ellipses_pre": 0.2}  # the bottom of the plot of each colouring: room for its legend and ramps
 LINES = {"outcome_lines": "outcome", "mode_lines": "mode"}  # the line plots and the colouring whose colours they use
 LINE_SUCCESSES, LINE_FAILURES, LINE_WIDTH, BACKGROUND = 15, 25, 1.2, (0.88, 0.88, 0.88)  # episodes drawn as lines per figure, their width and the colour of the other points
 ELLIPSES = {"outcome_ellipses_late": ("outcome", "late", True), "outcome_ellipses_all": ("outcome", "all", True), "mode_ellipses_late": ("mode", "late", True),
             "mode_ellipses_all": ("mode", "all", True), "outcome_gaussians_late": ("outcome", "late", False), "outcome_gaussians_all": ("outcome", "all", False),
             "mode_gaussians_late": ("mode", "late", False), "mode_gaussians_all": ("mode", "all", False),
+            "outcome_gaussians_pre": ("outcome", "pre", False), "mode_gaussians_pre": ("mode", "pre", False),
             "outcome_ellipses_post": ("outcome", "post", True), "mode_ellipses_post": ("mode", "post", True),
             "outcome_ellipses_pre": ("outcome", "pre", True), "mode_ellipses_pre": ("mode", "pre", True)}  # (kind of class, window, with the points)
 PATHS = {"outcome_ellipses_path": ("outcome", "late", False), "mode_ellipses_path": ("mode", "late", False), "outcome_ellipses_paths": ("outcome", "late", True),
@@ -350,9 +354,44 @@ def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure
     return fits
 
 
+@dataclass(frozen=True)
+class Export:
+    """How the figures are written: one file per format (``png`` at ``DPI``, ``pdf`` as vector graphics), with or without their title, and, with ``tight``, with the blank margins
+    cropped to what is drawn (which also keeps a label that sticks out of the figure)."""
+
+    formats: tuple[str, ...] = ("png",)
+    title: bool = True
+    tight: bool = False
+
+
+EXPORT = Export()  # the setting of the figures being drawn: changed only by ``exporting``
+
+
+@contextmanager
+def exporting(export: Export):
+    """Draw the figures of the block with ``export`` (the previous setting is restored when it ends, also after an error)."""
+    global EXPORT
+    previous, EXPORT = EXPORT, export
+    try:
+        yield
+    finally:
+        EXPORT = previous
+
+
+def exported(path: Path) -> list[Path]:
+    """The files ``save`` writes for the figure ``path``: its name with each of the formats of the current export."""
+    return [path.with_suffix(f".{fmt}") for fmt in EXPORT.formats]
+
+
 def save(fig, path: Path) -> None:
+    """Write the figure in the formats of the current export (without its titles if the export has none) and close it."""
+    if not EXPORT.title:
+        fig.suptitle("")
+        for ax in fig.axes:
+            ax.set_title("")
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=DPI)
+    for file in exported(path):
+        fig.savefig(file, dpi=DPI, **({"bbox_inches": "tight", "pad_inches": 0.05} if EXPORT.tight else {}))
     plt.close(fig)
 
 
@@ -370,19 +409,32 @@ def finish(fig, ax, coloring: str, points: dict, path: Path) -> None:
 
 def embedding_title(config: dict) -> str:
     name = "VLA embedding" if config["embedding"] == "vla" else f"probe {LAYER_TITLES[config.get('layer') or 'hidden']} (trained on {config['split']})"
-    return name + (", PCA" if config.get("reducer") == "pca" else "") + (", one point per episode" if config.get("unit") == "episode" else "")
+    pca = ", PCA" + (" (axes from the training episodes)" if config.get("fit_set") == "train_pre" else "")
+    return name + (pca if config.get("reducer") == "pca" else "") + (", one point per episode" if config.get("unit") == "episode" else "")
 
 
 def render(points_path: Path, split: str | None = None, out_dir: Path | None = None, colorings=None, subsets=SUBSETS, seed: int = 0, path_mode: str = PATH_MODE,
-           n_pairs: int = N_PAIRS) -> list[Path]:
-    """Draw ``<out_dir>/<figure>__<subset>.png`` for every figure (a colouring or a line plot, ``FIGURES``) and subset of the points saved in ``points_path`` (default out_dir:
-    ``figures/<split>/`` next to it). The episodes of a line plot are a sample that depends on the subset and ``seed`` only, so that ``outcome_lines`` and ``mode_lines`` draw the same.
-    ``split`` is the split whose seen / held-out / unseen episodes the subsets are: the probe's own for a probe (the default), any for the VLA embedding. A figure the points
-    cannot show (skill without skills, lines for one point per episode, 3D without a third axis) and a subset that is empty are skipped. Returns the files written."""
+           n_pairs: int = N_PAIRS, titles: tuple[bool, ...] = (True,), formats: tuple[str, ...] = ("png",), tight: bool = False) -> list[Path]:
+    """Draw ``<out_dir>/<figure>__<subset>.<format>`` for every figure (a colouring or a line plot, ``FIGURES``), subset and format (``Export``) of the points saved in
+    ``points_path`` (default out_dir: ``figures/<split>/`` next to it). ``titles`` says whether the figures have a title (``(True,)``), none (``(False,)``) or both, which are
+    then drawn into the folders ``with_title`` and ``without_title`` of ``out_dir``. The episodes of a line plot are a sample that depends on the subset and ``seed`` only, so that
+    ``outcome_lines`` and ``mode_lines`` draw the same. ``split`` is the split whose seen / held-out / unseen episodes the subsets are: the probe's own for a probe (the default), any
+    for the VLA embedding. A figure the points cannot show (skill without skills, lines for one point per episode, 3D without a third axis) and a subset that is empty are
+    skipped. Returns the files written."""
     points = load_points(points_path)
     split = split or points["config"]["split"]
     out_dir = out_dir or points_path.parent / "figures" / split
     masks = subset_masks(points["keys"].tolist(), load_inputs(points["config"]["dataset"]).splits[split])
+    written = []
+    for with_title in titles:
+        folder = out_dir / ("with_title" if with_title else "without_title") if len(titles) > 1 else out_dir
+        with exporting(Export(tuple(formats), with_title, tight)):
+            written += draw_figures(points, masks, folder, colorings, subsets, seed, path_mode, n_pairs)
+    return written
+
+
+def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, seed: int, path_mode: str, n_pairs: int) -> list[Path]:
+    """The figures of ``render`` for the current export, written into ``out_dir``; returns the files."""
     order = np.random.default_rng(seed).permutation(len(points["xy"]))
     limits, written = limits_of(points["xy"]), []
     limits3 = limits_of(points["xyz"]) if "xyz" in points else None
@@ -411,7 +463,7 @@ def render(points_path: Path, split: str | None = None, out_dir: Path | None = N
                     mode = MODE_NAMES[points["mode"][failure]]
                     draw_ellipses(points, mask, kind, window, "outcome_ellipses_paths", f"{head}: pair {k + 1} of {len(pairs)}, a success and a {mode} failure", pair_path, limits,
                                   True, success, failure, mode)
-                    written.append(pair_path)
+                    written.extend(exported(pair_path))
                 continue
             elif figure in PATHS:
                 kind, window, with_failure = PATHS[figure]
@@ -433,5 +485,5 @@ def render(points_path: Path, split: str | None = None, out_dir: Path | None = N
                 draw_lines(points, colors, episodes[points["episode"]], chosen, coloring, f"{head}: {len(chosen)} of {int(episodes.sum())} episodes as lines", path, limits)
             else:
                 draw(points, colors, episodes[points["episode"]], coloring, title, path, order, limits)
-            written.append(path)
+            written.extend(exported(path))
     return written

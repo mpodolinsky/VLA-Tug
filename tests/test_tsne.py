@@ -416,3 +416,81 @@ def test_the_3d_gaussian_figures_fit_the_window_of_their_name_late_without_a_suf
         assert windows == [({"mode_3d_gaussians": "late", "mode_3d_gaussians_pre": "pre", "outcome_3d_ellipsoids_pre": "pre", "outcome_3d_gaussians": "late"}[figure], "xyz")]
     assert all(window in class_fits.WINDOWS and window in tsne_plots.WINDOW_TITLES for _, _, window in tsne_plots.THREE_D_FITS.values())
     assert tsne_plots.WINDOW_TITLES["late"] == "second half of the steps before the failure"
+
+
+def test_a_figure_is_saved_in_every_format_without_its_titles_when_the_export_has_none_and_the_setting_is_restored(tmp_path):
+    fig, ax = tsne_plots.canvas("outcome", "the title", ((-1.0, 1.0), (-1.0, 1.0)))
+    fig.suptitle("the suptitle")
+    calls = []
+    fig.savefig = lambda file, **kw: calls.append((file.name, kw, ax.get_title(), fig.get_suptitle()))
+    with tsne_plots.exporting(tsne_plots.Export(("png", "pdf"), title=False, tight=True)):
+        assert tsne_plots.EXPORT.formats == ("png", "pdf")
+        tsne_plots.save(fig, tmp_path / "a.png")
+    assert [(name, title, suptitle) for name, _, title, suptitle in calls] == [("a.png", "", ""), ("a.pdf", "", "")]  # a file per format, no title
+    assert all(kw == {"dpi": tsne_plots.DPI, "bbox_inches": "tight", "pad_inches": 0.05} for _, kw, _, _ in calls)
+    assert tsne_plots.EXPORT == tsne_plots.Export() == tsne_plots.Export(("png",), True, False)  # back to the default: png, with the title, not cropped
+    with pytest.raises(RuntimeError):
+        with tsne_plots.exporting(tsne_plots.Export(("pdf",))):
+            raise RuntimeError
+    assert tsne_plots.EXPORT == tsne_plots.Export()  # also after an error
+    fig2, _ = tsne_plots.canvas("outcome", "kept", ((-1.0, 1.0), (-1.0, 1.0)))
+    seen = []
+    fig2.savefig = lambda file, **kw: seen.append((file.name, kw, fig2.axes[0].get_title()))
+    tsne_plots.save(fig2, tmp_path / "b.png")
+    assert seen == [("b.png", {"dpi": tsne_plots.DPI}, "kept")]  # by default one png, with its title, uncropped
+
+
+def test_render_writes_the_figures_with_and_without_titles_in_two_folders_in_every_format(tmp_path, monkeypatch):
+    path, _ = three_d_file(tmp_path)
+    keys = [f"e{i}" for i in range(4)]
+    monkeypatch.setattr(tsne_plots, "load_inputs", lambda dataset: SimpleNamespace(splits={"task_seed0": split(train=keys[:2], calibration=keys[2:3], seen=keys[3:])}))
+    out = tmp_path / "paper"
+    written = tsne_plots.render(path, colorings=["outcome"], subsets=["all"], out_dir=out, titles=(True, False), formats=("png", "pdf"), tight=True)
+    assert sorted(w.relative_to(out).as_posix() for w in written) == ["with_title/outcome__all.pdf", "with_title/outcome__all.png", "without_title/outcome__all.pdf", "without_title/outcome__all.png"]
+    assert all(w.exists() and w.stat().st_size > 1000 for w in written)
+    assert tsne_plots.EXPORT == tsne_plots.Export()  # the export does not leak out of render
+    one = tsne_plots.render(path, colorings=["outcome"], subsets=["all"], out_dir=tmp_path / "one", titles=(False,), formats=("pdf",))
+    assert [w.relative_to(tmp_path / "one").as_posix() for w in one] == ["outcome__all.pdf"] and one[0].exists()  # one setting: no sub-folder, and only the pdf
+    default = tsne_plots.render(path, colorings=["outcome"], subsets=["all"], out_dir=tmp_path / "default")
+    assert [w.name for w in default] == ["outcome__all.png"]  # as before: one png with its title
+
+
+def test_the_standardisation_and_the_pca_fitted_on_some_rows_do_not_depend_on_the_others_which_are_projected_onto_the_axes():
+    rng = np.random.default_rng(0)
+    first = rng.normal(0, 3.0, 300)
+    fit_part = np.column_stack([first, first + rng.normal(0, 0.5, 300), rng.normal(0, 1.0, 300)])
+    other = np.column_stack([rng.normal(0, 1.0, 100), rng.normal(0, 30.0, 100), rng.normal(0, 1.0, 100)])
+    x = np.concatenate([fit_part, other]).astype(np.float32)
+    fit = np.array([True] * 300 + [False] * 100)
+    standardised = tsne.standardise_all(x.copy(), fit)
+    assert np.allclose(standardised[fit].mean(axis=0), 0, atol=1e-4) and np.allclose(standardised[fit].std(axis=0), 1, atol=1e-3)
+    assert standardised[~fit][:, 1].std() > 10  # the other rows are scaled with the statistics of the fit rows: the column that varies only in them stays large
+    with pytest.raises(ValueError, match="no row"):
+        tsne.standardise_all(x.copy(), np.zeros(400, bool))
+    fitted, share = tsne.pca_axes(x.copy(), 2, fit_points=1000, fit=fit)
+    alone, share_alone = tsne.pca_axes(x[fit].copy(), 2, fit_points=1000)
+    everything, _ = tsne.pca_axes(x.copy(), 2, fit_points=1000)
+    assert np.allclose(np.abs(fitted[fit]), np.abs(alone), atol=1e-3) and np.allclose(share, share_alone, atol=1e-5)  # the same axes as with the fit rows alone
+    assert fitted.shape == (400, 2) and not np.allclose(np.abs(everything[fit]), np.abs(alone), atol=1e-2)  # the other rows would change the axes if they were used
+
+
+def test_the_fit_rows_are_the_steps_up_to_the_failure_step_of_the_training_episodes_only():
+    keys = ["a", "b", "c"]  # a: a training failure (failure step 2), b: a training success, c: not a training episode
+    episode = np.array([0] * 5 + [1] * 3 + [2] * 4)
+    step = np.array([0, 1, 2, 3, 4, 0, 1, 2, 0, 1, 2, 3])
+    onset = np.array([2, -1, 1])
+    sp = split(train=["a", "b"], val=["c"])
+    fit = tsne.fit_rows(keys, episode, step, onset, sp, "train_pre")
+    assert np.flatnonzero(fit).tolist() == [0, 1, 2, 5, 6, 7]  # the failure up to its failure step 2, the success all, nothing of c
+    assert tsne.fit_rows(keys, episode, step, onset, sp, "all") is None and tsne.FIT_SETS == ("all", "train_pre")
+    with pytest.raises(ValueError, match="unknown fit set"):
+        tsne.fit_rows(keys, episode, step, onset, sp, "val")
+
+
+def test_the_title_says_when_the_axes_are_fitted_on_the_training_episodes_and_the_2d_pre_window_gaussians_exist():
+    config = {"embedding": "vla", "split": None, "reducer": "pca"}
+    assert tsne_plots.embedding_title(config) == "VLA embedding, PCA"
+    assert tsne_plots.embedding_title(config | {"fit_set": "train_pre"}) == "VLA embedding, PCA (axes from the training episodes)"
+    assert tsne_plots.embedding_title(config | {"fit_set": "all"}) == "VLA embedding, PCA" and tsne_plots.embedding_title({**config, "reducer": "tsne", "fit_set": "train_pre"}) == "VLA embedding"
+    assert tsne_plots.ELLIPSES["mode_gaussians_pre"] == ("mode", "pre", False) and tsne_plots.ELLIPSES["outcome_gaussians_pre"] == ("outcome", "pre", False)
+    assert {"mode_gaussians_pre", "outcome_gaussians_pre"} <= set(tsne_plots.BOTTOM) and {"mode_gaussians_pre", "outcome_gaussians_pre"} <= set(tsne_plots.FIGURES)
