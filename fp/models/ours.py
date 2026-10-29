@@ -102,12 +102,16 @@ class Probe(nn.Module):
         self.mode = head(cfg.hidden, cfg.n_modes) if cfg.modes else None
         self.sem = head(cfg.hidden, cfg.clip_dim) if cfg.clip else None
 
-    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+    def hidden(self, x: torch.Tensor) -> torch.Tensor:
+        """The trunk's state at every step, (B, T, hidden): what every head reads."""
         if x.shape[-1] != self.cfg.d_in:
             raise ValueError(f"expected {self.cfg.d_in} feature columns, got {x.shape[-1]}")
         if self.attention is not None:
             x = self.attention(x)
-        h = self.trunk(x)[0] if self.cfg.trunk == "lstm" else self.trunk(x)
+        return self.trunk(x)[0] if self.cfg.trunk == "lstm" else self.trunk(x)
+
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        h = self.hidden(x)
         out = {"score": self.score(h).squeeze(-1)}
         if self.mode is not None:
             out["mode"] = self.mode(h)
