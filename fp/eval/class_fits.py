@@ -147,6 +147,33 @@ def random_pairs(points: dict, subset: np.ndarray, n: int, rng: np.random.Genera
     return [(int(a), int(b)) for a, b in zip(*picks)]
 
 
+def trajectory_candidates(points: dict, subset: np.ndarray, n_successes: int, n_failures: int, rng: np.random.Generator,
+                          exclude: frozenset[int] | set[int] = frozenset()) -> tuple[list[int], list[int]]:
+    """Episodes of ``subset`` (a mask over points) to choose example trajectories from: ``n_successes`` random successes and ``n_failures`` failures, one for each of the most common
+    failure modes of the subset (ties by mode index), then random ones if there are fewer modes. Only episodes whose path is at least as long as the median of their class are
+    eligible (the path of a success is all its points, that of a failure its points up to its failure step). Fewer are returned if a class has fewer eligible episodes. The episodes of
+    ``exclude`` (those of an earlier draw) are not chosen again, and the failure modes they have are taken last, so that a second draw shows the modes the first one did not. Only failures
+    of a mode that has a Gaussian in the subset (at least ``MIN_EPISODES`` episodes of it) are chosen, so that every failure can be compared with the ellipse of its mode."""
+    ep = points["episode"]
+    episodes, index = np.unique(ep[subset & (points["success"][ep] | (points["step"] <= points["onset"][ep]))], return_inverse=True)
+    lengths = np.bincount(index)
+    success = points["success"][episodes]
+    pools = {}
+    for wins in (True, False):
+        in_class = success == wins
+        pools[wins] = episodes[in_class & (lengths >= np.median(lengths[in_class])) & ~np.isin(episodes, list(exclude))] if in_class.any() else episodes[:0]
+    successes = [int(e) for e in rng.permutation(pools[True])[:n_successes]]
+    failed_modes = points["mode"][episodes[~success]]  # the mode of every failure of the subset
+    fitted = {int(m) for m in set(failed_modes.tolist()) if int((failed_modes == m).sum()) >= MIN_EPISODES}
+    pool = pools[False][np.isin(points["mode"][pools[False]], list(fitted))]
+    modes = points["mode"][pool]
+    used = {int(points["mode"][e]) for e in exclude if not points["success"][e]}
+    by_frequency = sorted(set(modes.tolist()), key=lambda m: (m in used, -int((modes == m).sum()), m))
+    failures = [int(rng.choice(pool[modes == m])) for m in by_frequency[:n_failures]]
+    rest = [int(e) for e in rng.permutation(pool) if int(e) not in failures]
+    return successes, failures + rest[: max(n_failures - len(failures), 0)]
+
+
 def class_stats(x: np.ndarray, labels: np.ndarray, k: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """(counts (k,), means (k, d), covariances (k, d, d)) of the rows of ``x`` of each class 0..k-1; a class with fewer than two rows has NaN mean and covariance."""
     counts = np.array([(labels == i).sum() for i in range(k)])

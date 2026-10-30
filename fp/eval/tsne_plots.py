@@ -44,6 +44,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 import matplotlib.colors as mcolors
+from matplotlib import patheffects
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.collections import LineCollection
@@ -53,7 +54,7 @@ from matplotlib.patches import Patch
 from ..data.inputs import load_inputs
 from ..data.targets import MODE_NAMES
 from . import class_fits
-from .tsne import SUBSETS, load_points, progress, subset_masks
+from .tsne import SUBSETS, load_points, progress, subset_masks, train_mask
 
 LIGHT_BLUE, DARK_BLUE, RED = np.array([0.80, 0.88, 0.96]), np.array([0.03, 0.19, 0.42]), np.array([0.84, 0.15, 0.15])
 MODE_COLORS = ("#d62728", "#ff7f0e", "#bcbd22", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#7f7f7f", "#000000")  # one per mode, none of them blue
@@ -78,6 +79,9 @@ PATHS = {"outcome_ellipses_path": ("outcome", "late", False), "mode_ellipses_pat
 PATH_MODE = "grasp_failure"  # the failure mode of the failure whose path is drawn
 PAIRS = {"outcome_ellipses_pairs": ("outcome", "late")}  # random pairs of a success and a failure of any mode on the ellipse plot, one figure per pair (not drawn by default)
 N_PAIRS = 5  # pairs drawn per subset
+PANEL_ASPECT = (0.45, 1.0)  # the height of a seen / unseen panel relative to its width: that of the data, within these limits
+TRAIN_UNSEEN = {"outcome_ellipses_pre_train_unseen": ("outcome", "pre"), "mode_ellipses_pre_train_unseen": ("mode", "pre")}  # the ellipse plot of the seen and the unseen tasks side by side in one
+# figure, on the same axes (not drawn by default; no subset in the file name): (kind of class, window). The left panel is the training episodes, the right one the unseen tasks
 LAYER_TITLES = {"hidden": "state", "mode_hidden": "mode-head layer (64-d)", "score_hidden": "score-head layer (64-d)", "clip": "CLIP head (64-d)"}  # what the title calls the layer of the probe that is embedded
 SMOOTH_STEPS = 7  # the path of an episode is drawn averaged over this many steps
 CAPTION_CHARS = 80  # the caption naming the task of a path is cut to this many characters
@@ -132,7 +136,7 @@ COLORINGS = {"task": by_task, "skill": by_skill, "outcome": by_outcome, "mode": 
 FIGURES = tuple(COLORINGS) + tuple(LINES) + tuple(ELLIPSES) + tuple(PATHS) + tuple(THREE_D) + tuple(THREE_D_FITS)  # everything ``render`` draws by default
 BASE = LINES | THREE_D | {name: kind for name, (kind, _, _) in THREE_D_FITS.items()}  # the colouring each line plot and 3D plot takes its colours from
 NEEDS_XYZ = tuple(THREE_D) + tuple(THREE_D_FITS)  # the figures that need the third principal axis
-MODE_FIT_FIGURES = tuple(name for table in (ELLIPSES, THREE_D_FITS) for name, entry in table.items() if entry[0] == "mode")  # the figures of the failure modes fitted to the classes: what failures_only draws
+MODE_FIT_FIGURES = tuple(name for table in (ELLIPSES, THREE_D_FITS, TRAIN_UNSEEN) for name, entry in table.items() if entry[0] == "mode")  # the figures of the failure modes fitted to the classes: what failures_only draws
 
 
 def legend_handles(coloring: str, points: dict) -> list:
@@ -195,8 +199,9 @@ def add_axes_arrows(ax, labels: tuple[str, ...]) -> None:
     end = 0.03 + 0.13 * min(max(EXPORT.font_scale, 1.0), 2.5)  # the arrows grow with the text
     ax.annotate("", xy=(end, 0.03), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
     ax.annotate("", xy=(0.03, end), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
-    ax.text(end, 0.045, labels[0], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom")
-    ax.text(0.045, end, labels[1], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom")
+    backing = dict(facecolor="white", alpha=0.75, edgecolor="none", pad=1.5)  # the labels stay legible over points and ellipses
+    ax.text(end, 0.045, labels[0], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom", bbox=backing)
+    ax.text(0.045, end, labels[1], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom", bbox=backing)
 
 
 def canvas(coloring: str, title: str, limits, labels: tuple[str, ...] | None = None):
@@ -303,21 +308,27 @@ def smoothed(xy: np.ndarray, window: int = SMOOTH_STEPS) -> np.ndarray:
     return np.stack([np.convolve(xy[:, d], kernel, mode="same") / counts for d in range(xy.shape[1])], axis=1)
 
 
-def add_path(ax, points: dict, episode: int, failure: bool = False, caption_row: int = 0, label: str = "successful") -> None:
+def add_path(ax, points: dict, episode: int, failure: bool = False, caption_row: int = 0, label: str = "successful", caption: bool = True, color="black",
+             outline: str | None = None) -> None:
     """The path of the episode with index ``episode`` as a black arrow: a line smoothed over ``SMOOTH_STEPS`` steps with arrowheads along it and a ring at its first step; a failure
-    (``failure``) is drawn dashed up to its failure step and ends in a cross. Its task is a small caption in the top left corner, in row ``caption_row``."""
+    (``failure``) is drawn dashed up to its failure step and ends in a cross. Its task is a small caption in the top left corner, in row ``caption_row`` (none without ``caption``).
+    The path is drawn in ``color`` and, with ``outline`` (a colour), with an outline of that colour so that a pale path stays visible over the Gaussians."""
     rows = np.flatnonzero(points["episode"] == episode)
     if failure:
         rows = rows[points["step"][rows] <= points["onset"][episode]]
     path = smoothed(points["xy"][rows].astype(np.float64))
-    ax.plot(path[:, 0], path[:, 1], color="black", linewidth=2.0, linestyle="--" if failure else "-", zorder=6, solid_capstyle="round")
+    halo = [patheffects.withStroke(linewidth=3.0, foreground=outline)] if outline else []
+    ax.plot(path[:, 0], path[:, 1], color=color, linewidth=2.0, linestyle="--" if failure else "-", zorder=6, solid_capstyle="round", path_effects=halo)
     for i in np.unique(np.linspace(1, len(path) - 1, 6).astype(int)):
-        ax.annotate("", xy=path[i], xytext=path[i - 1], arrowprops=dict(arrowstyle="-|>", color="black", linewidth=0, mutation_scale=16, shrinkA=0, shrinkB=0), zorder=7)
-    ax.scatter(*path[0], facecolors="white", edgecolors="black", s=40, linewidths=1.2, zorder=8)
+        arrow = ax.annotate("", xy=path[i], xytext=path[i - 1], arrowprops=dict(arrowstyle="-|>", color=color, linewidth=0, mutation_scale=16, shrinkA=0, shrinkB=0), zorder=7)
+        if outline:
+            arrow.arrow_patch.set_path_effects([patheffects.withStroke(linewidth=0.9, foreground=outline)])
+    ax.scatter(*path[0], facecolors="white", edgecolors=outline or "black", s=40, linewidths=1.2, zorder=8)
     if failure:
-        ax.scatter(*path[-1], marker="X", color="black", s=70, edgecolors="white", linewidths=0.8, zorder=9)
-    caption = f"{label} episode: {points['task'][episode]}"
-    ax.text(0.01, 0.99 - 0.035 * caption_row, caption if len(caption) <= CAPTION_CHARS else caption[: CAPTION_CHARS - 1] + "…", transform=ax.transAxes, fontsize=fs(7), color="0.35", ha="left", va="top")
+        ax.scatter(*path[-1], marker="X", color=color, s=70, edgecolors=outline or "white", linewidths=0.8 if not outline else 1.0, zorder=9)
+    if caption:
+        text = f"{label} episode: {points['task'][episode]}"
+        ax.text(0.01, 0.99 - 0.035 * caption_row, text if len(text) <= CAPTION_CHARS else text[: CAPTION_CHARS - 1] + "…", transform=ax.transAxes, fontsize=fs(7), color="0.35", ha="left", va="top")
 
 
 LEGEND_PT = 7.5  # the font size of a class legend before the font scale of the export
@@ -356,12 +367,9 @@ def add_class_legend(fig, kind: str, fits: list, ncol: int, extra=()) -> float:
     return height + 0.03
 
 
-def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure: str, title: str, path: Path, limits, show_points: bool = True,
-                  path_episode: int | None = None, failure_episode: int | None = None, failure_mode: str = "") -> list:
-    """One PNG: the points of ``mask`` in light grey, the points of each fitted class in its colour (both left out without ``show_points``) with the one-standard-deviation ellipse
-    of its Gaussian and its centre, and the path of the successful episode ``path_episode`` as a black arrow and that of the failure ``failure_episode`` (of ``failure_mode``) as a
-    dashed one; returns the fits."""
-    fig, ax = canvas(figure, title, limits, axis_labels(points))
+def draw_fits(ax, points: dict, mask: np.ndarray, kind: str, window: str, show_points: bool = True) -> list:
+    """On ``ax``: the points of ``mask`` in light grey, the points of each fitted class of ``kind`` in its colour (both left out without ``show_points``) with the one-standard-deviation
+    ellipse of its Gaussian (fitted on the points of the window ``window``) and its centre; returns the fits."""
     if show_points:
         ax.scatter(points["xy"][mask, 0], points["xy"][mask, 1], color=BACKGROUND, s=POINT_SIZE, linewidths=0, rasterized=True)
     fits = class_fits.fit_classes(points, kind, mask, window)
@@ -373,6 +381,53 @@ def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure
         ax.fill(outline[:, 0], outline[:, 1], color=color, alpha=0.12 if show_points else 0.25, linewidth=0)
         ax.plot(outline[:, 0], outline[:, 1], color=color, linewidth=1.8)
         ax.scatter(*fit.mean, color=color, s=45, edgecolors="white", linewidths=1.0, zorder=4)
+    return fits
+
+
+def add_pair_legend(fig, kind: str, seen_fits: list, unseen_fits: list, ncol: int = 4) -> float:
+    """A legend under a train / unseen figure with one entry per class fitted in either panel, ``name (episodes train / episodes unseen)`` (a dash where the class is not fitted in a
+    panel). Returns the bottom margin (fraction of the figure) it needs, as ``add_class_legend``."""
+    names = {f.id: f.name for f in seen_fits + unseen_fits}
+    seen, unseen = {f.id: f.episodes for f in seen_fits}, {f.id: f.episodes for f in unseen_fits}
+    handles = [Patch(color=class_color(kind, i), label=f"{names[i]} ({seen.get(i, '–')} / {unseen.get(i, '–')})") for i in sorted(names)]
+    if not handles:
+        return 0.0
+    columns, height = legend_layout([h.get_label() for h in handles], ncol, fig)
+    fig.legend(handles=handles, title="episodes (train / unseen)", loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=columns, fontsize=fs(LEGEND_PT), title_fontsize=fs(LEGEND_PT),
+               frameon=False, handlelength=1.0, columnspacing=1.2)
+    return height + 0.03 + fs(LEGEND_PT) * 1.8 / 72 / fig.get_size_inches()[1]
+
+
+def draw_train_unseen(points: dict, seen: np.ndarray, unseen: np.ndarray, kind: str, window: str, path: Path, limits) -> tuple[list, list]:
+    """One figure without a title with two panels on the same axes, the training episodes on the left and the unseen tasks on the right (the masks over the points ``train`` and ``unseen``):
+    in each the points and the Gaussians of the classes of ``kind`` (``draw_fits``), the PC arrows if the points are PCA, and a label of the panel; one legend for both
+    (``add_pair_legend``). Returns the fits of the two panels."""
+    (x0, x1), (y0, y1) = limits[0], limits[1]
+    height = SIZE * min(max((y1 - y0) / (x1 - x0), PANEL_ASPECT[0]), PANEL_ASPECT[1])  # the panels are as tall as the data is, so that there is no empty band above the legend
+    fig, axes = plt.subplots(1, 2, figsize=(2 * SIZE, height))
+    fig.subplots_adjust(left=0.005, right=0.995, top=0.98, bottom=0.02, wspace=0.02)
+    labels, fits = axis_labels(points), []
+    for ax, mask, name in zip(axes, (seen, unseen), ("Train", "Unseen")):
+        ax.set_xlim(limits[0])
+        ax.set_ylim(limits[1])
+        ax.set_aspect("equal")
+        ax.axis("off")
+        if labels:
+            add_axes_arrows(ax, labels)
+        ax.text(0.02, 0.98, name, transform=ax.transAxes, ha="left", va="top", fontsize=fs(11), fontweight="bold", color="0.15")
+        fits.append(draw_fits(ax, points, mask, kind, window))
+    make_room(fig, add_pair_legend(fig, kind, *fits))
+    save(fig, path)
+    return fits[0], fits[1]
+
+
+def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure: str, title: str, path: Path, limits, show_points: bool = True,
+                  path_episode: int | None = None, failure_episode: int | None = None, failure_mode: str = "") -> list:
+    """One PNG: the points of ``mask`` in light grey, the points of each fitted class in its colour (both left out without ``show_points``) with the one-standard-deviation ellipse
+    of its Gaussian and its centre, and the path of the successful episode ``path_episode`` as a black arrow and that of the failure ``failure_episode`` (of ``failure_mode``) as a
+    dashed one; returns the fits."""
+    fig, ax = canvas(figure, title, limits, axis_labels(points))
+    fits = draw_fits(ax, points, mask, kind, window, show_points)
     extra = []
     if path_episode is not None:
         add_path(ax, points, path_episode)
@@ -453,7 +508,8 @@ def embedding_title(config: dict) -> str:
 def render(points_path: Path, split: str | None = None, out_dir: Path | None = None, colorings=None, subsets=SUBSETS, seed: int = 0, path_mode: str = PATH_MODE,
            n_pairs: int = N_PAIRS, titles: tuple[bool, ...] = (True,), formats: tuple[str, ...] = ("png",), tight: bool = False, failures_only: bool = False,
            font_scale: float = 1.0) -> list[Path]:
-    """Draw ``<out_dir>/<figure>__<subset>.<format>`` for every figure (a colouring or a line plot, ``FIGURES``), subset and format (``Export``) of the points saved in
+    """Draw ``<out_dir>/<figure>__<subset>.<format>`` for every figure (a colouring or a line plot, ``FIGURES``; the figures of ``TRAIN_UNSEEN``, which show the training episodes and the unseen tasks in one
+    figure, are drawn as ``<figure>.<format>`` when asked for), subset and format (``Export``) of the points saved in
     ``points_path`` (default out_dir: ``figures/<split>/`` next to it). ``titles`` says whether the figures have a title (``(True,)``), none (``(False,)``) or both, which are
     then drawn into the folders ``with_title`` and ``without_title`` of ``out_dir``. The episodes of a line plot are a sample that depends on the subset and ``seed`` only, so that
     ``outcome_lines`` and ``mode_lines`` draw the same. ``split`` is the split whose seen / held-out / unseen episodes the subsets are: the probe's own for a probe (the default), any
@@ -464,7 +520,8 @@ def render(points_path: Path, split: str | None = None, out_dir: Path | None = N
     points = load_points(points_path)
     split = split or points["config"]["split"]
     out_dir = out_dir or points_path.parent / "figures" / split
-    masks = subset_masks(points["keys"].tolist(), load_inputs(points["config"]["dataset"]).splits[split])
+    inputs_split = load_inputs(points["config"]["dataset"]).splits[split]
+    masks = {**subset_masks(points["keys"].tolist(), inputs_split), "train": train_mask(points["keys"].tolist(), inputs_split)}  # the subsets and the training episodes
     written = []
     for with_title in titles:
         folder = out_dir / ("with_title" if with_title else "without_title") if len(titles) > 1 else out_dir
@@ -484,6 +541,13 @@ def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, s
         if failures_only and figure not in MODE_FIT_FIGURES:
             continue
         if (figure == "skill" and not skills_of(points)) or (figure in tuple(LINES) + tuple(PATHS) + tuple(PAIRS) and points["config"].get("unit") == "episode") or (figure in NEEDS_XYZ and "xyz" not in points):
+            continue
+        if figure in TRAIN_UNSEEN:  # one figure for the seen and the unseen tasks: no subset in the name
+            seen, unseen = (masks[name][points["episode"]] & keep for name in ("train", "unseen"))
+            if seen.any() and unseen.any():
+                path = out_dir / f"{figure}{suffix}.png"
+                draw_train_unseen(points, seen, unseen, *TRAIN_UNSEEN[figure], path, limits)
+                written.extend(exported(path))
             continue
         coloring = BASE.get(figure, figure)
         colors = None if figure in ELLIPSES or figure in PATHS or figure in PAIRS else COLORINGS[coloring](points)

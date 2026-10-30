@@ -307,3 +307,102 @@ def test_the_pre_window_is_every_step_up_to_the_failure_step_for_a_failure_and_e
     assert (late[20:] <= pre[20:]).all() and np.flatnonzero(late[20:]).tolist() == list(range(6, 13))  # late is the second half of it
     assert np.array_equal(pre[20:] | post[20:], everything[20:]) and not (pre[20:] & post[20:]).any()  # for a failure pre and post make all of it
     assert {"outcome_ellipses_pre", "mode_ellipses_pre"} <= set(tsne_plots.ELLIPSES) and class_fits.WINDOWS == ("late", "all", "post", "pre")
+
+
+def seen_unseen_masks(p, unseen_failures=True):
+    """Seen = the even episodes, unseen = the odd ones (of the 8 successes and 8 failures of ``episodes_points(8, 8)``); without ``unseen_failures`` the unseen set has no failure."""
+    even = (np.arange(16) % 2 == 0)[p["episode"]]
+    odd = ~even if unseen_failures else (~even) & p["success"][p["episode"]]
+    return even, odd
+
+
+def test_the_train_unseen_figure_has_two_panels_on_the_same_axes_one_legend_with_both_counts_and_no_title(monkeypatch, tmp_path):
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    monkeypatch.setattr(class_fits, "MIN_POINTS", 10)
+    p = episodes_points(8, 8, steps=20, onset=15)
+    seen, unseen = seen_unseen_masks(p)
+    captured = []
+    monkeypatch.setattr(tsne_plots, "save", lambda fig, path: (captured.append((fig, path)), None)[1])
+    fits_seen, fits_unseen = tsne_plots.draw_train_unseen(p, seen, unseen, "outcome", "pre", tmp_path / "a.png", tsne_plots.limits_of(p["xy"]))
+    fig, path = captured[0]
+    ax_seen, ax_unseen = fig.axes
+    assert ax_seen.get_xlim() == ax_unseen.get_xlim() and ax_seen.get_ylim() == ax_unseen.get_ylim()  # the same axes
+    assert [t.get_text() for t in ax_seen.texts if t.get_text()] == ["Train"] and [t.get_text() for t in ax_unseen.texts if t.get_text()] == ["Unseen"]  # a label per panel
+    assert not any(ax.get_title() for ax in fig.axes) and fig._suptitle is None  # no title
+    assert [f.name for f in fits_seen] == ["success", "failure"] and [f.name for f in fits_unseen] == ["success", "failure"]
+    assert len(ax_seen.lines) == 2 and len(ax_unseen.lines) == 2  # an ellipse outline per class and panel
+    legend = fig.legends[0]
+    assert legend.get_title().get_text() == "episodes (train / unseen)" and [t.get_text() for t in legend.get_texts()] == ["success (4 / 4)", "failure (4 / 4)"]
+    assert fig.get_size_inches()[0] == 2 * tsne_plots.SIZE
+    tsne_plots.plt.close(fig)
+
+
+def test_a_class_that_is_fitted_in_only_one_panel_has_a_dash_for_the_other_in_the_legend(monkeypatch, tmp_path):
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    monkeypatch.setattr(class_fits, "MIN_POINTS", 10)
+    p = episodes_points(8, 8, steps=20, onset=15)
+    seen, unseen = seen_unseen_masks(p, unseen_failures=False)
+    captured = []
+    monkeypatch.setattr(tsne_plots, "save", lambda fig, path: captured.append(fig))
+    tsne_plots.draw_train_unseen(p, seen, unseen, "outcome", "pre", tmp_path / "a.png", tsne_plots.limits_of(p["xy"]))
+    assert [t.get_text() for t in captured[0].legends[0].get_texts()] == ["success (4 / 4)", "failure (4 / –)"]
+    tsne_plots.plt.close(captured[0])
+
+
+def test_the_train_unseen_panels_are_as_tall_as_the_data_within_limits(monkeypatch, tmp_path):
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    monkeypatch.setattr(class_fits, "MIN_POINTS", 10)
+    p = episodes_points(8, 8, steps=20, onset=15)
+    seen, unseen = seen_unseen_masks(p)
+    captured = []
+    monkeypatch.setattr(tsne_plots, "save", lambda fig, path: captured.append(fig))
+    sizes = []
+    for limits in (((0.0, 10.0), (0.0, 10.0)), ((0.0, 10.0), (0.0, 6.0)), ((0.0, 10.0), (0.0, 1.0))):
+        tsne_plots.draw_train_unseen(p, seen, unseen, "outcome", "pre", tmp_path / "a.png", limits)
+        sizes.append(captured[-1].get_size_inches()[1])
+    # the height of the panels (the figure without the legend margin that make_room adds): square, 60% of the width, and the lower limit of 45% for very flat data
+    assert sizes[0] > sizes[1] > sizes[2]
+    assert sizes[1] - sizes[2] == pytest.approx((0.6 - tsne_plots.PANEL_ASPECT[0]) * tsne_plots.SIZE, abs=0.35)
+    for fig in captured:
+        tsne_plots.plt.close(fig)
+
+
+def test_the_trajectory_candidates_are_random_successes_and_failures_of_the_most_common_modes_never_the_very_short_ones_and_the_same_for_the_same_seed(monkeypatch):
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    p = pair_points()  # 12 successes + 12 failures (modes 1 and 4 alternate) of 20 steps, and a 1-step and a 2-step success
+    p["mode"] = np.concatenate([p["mode"][:12], np.array([1, 1, 1, 4, 4, 6, 1, 4, 6, 1, 4, 1]), p["mode"][24:]])  # failures: mode 1 x 7, mode 4 x 4, mode 6 x 2... (12 entries)
+    everything = np.ones(len(p["xy"]), bool)
+    a = class_fits.trajectory_candidates(p, everything, 5, 3, np.random.default_rng(0))
+    b = class_fits.trajectory_candidates(p, everything, 5, 3, np.random.default_rng(0))
+    c = class_fits.trajectory_candidates(p, everything, 5, 3, np.random.default_rng(1))
+    assert a == b and a != c
+    successes, failures = a
+    assert len(successes) == 5 and len(set(successes)) == 5 and all(p["success"][e] for e in successes) and not {24, 25} & set(successes)  # none of the 1- and 2-step successes
+    assert len(failures) == 3 and not any(p["success"][e] for e in failures)
+    assert sorted(int(p["mode"][e]) for e in failures) == [1, 4, 6]  # one failure of each of the three most common modes
+    only_two_modes = class_fits.trajectory_candidates(p, everything, 1, 5, np.random.default_rng(0))[1]
+    assert len(only_two_modes) == 5 and len(set(only_two_modes)) == 5  # four modes exist: one each, then a random one
+    fewer = class_fits.trajectory_candidates(p, np.isin(p["episode"], [0, 1, 2, 12, 13]), 5, 5, np.random.default_rng(0))
+    assert len(fewer[0]) == 3 and len(fewer[1]) == 2  # the subset has 3 successes and 2 failures
+
+
+def test_a_second_draw_of_trajectory_candidates_skips_the_earlier_episodes_and_takes_the_modes_the_first_one_did_not_show_first(monkeypatch):
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    p = pair_points()
+    p["mode"] = np.concatenate([p["mode"][:12], np.array([1, 1, 1, 4, 4, 6, 1, 4, 6, 1, 4, 1]), p["mode"][24:]])  # failures: mode 1 x 6, mode 4 x 4, mode 6 x 2
+    everything = np.ones(len(p["xy"]), bool)
+    first = class_fits.trajectory_candidates(p, everything, 3, 2, np.random.default_rng(0))
+    assert sorted(int(p["mode"][e]) for e in first[1]) == [1, 4]  # the two most common modes
+    second = class_fits.trajectory_candidates(p, everything, 3, 2, np.random.default_rng(1), set(first[0]) | set(first[1]))
+    assert not set(second[0]) & set(first[0]) and not set(second[1]) & set(first[1])  # new episodes
+    assert sorted(int(p["mode"][e]) for e in second[1]) == [1, 6]  # the mode that was not shown (6) first, then the most common of the others (1)
+    assert class_fits.trajectory_candidates(p, everything, 3, 2, np.random.default_rng(0), frozenset()) == first  # no exclusion: as before
+
+
+def test_the_failures_of_the_trajectory_candidates_are_only_of_modes_that_have_enough_episodes_for_a_gaussian():
+    p = pair_points()
+    p["mode"] = np.concatenate([p["mode"][:12], np.array([1, 1, 1, 4, 4, 6, 1, 4, 6, 1, 4, 1]), p["mode"][24:]])  # failures: mode 1 x 6, mode 4 x 4, mode 6 x 2
+    everything = np.ones(len(p["xy"]), bool)
+    assert class_fits.MIN_EPISODES == 5
+    _, failures = class_fits.trajectory_candidates(p, everything, 1, 3, np.random.default_rng(0))
+    assert len(failures) == 3 and {int(p["mode"][e]) for e in failures} == {1}  # modes 4 (4 episodes) and 6 (2) have no Gaussian: only mode 1 is left

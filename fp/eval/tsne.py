@@ -88,6 +88,12 @@ def episode_means(x: np.ndarray, episode: np.ndarray, table: dict[str, np.ndarra
     return means, np.arange(len(last), dtype=np.int32), last
 
 
+def train_mask(keys: list[str], split: Split) -> np.ndarray:
+    """Boolean mask over ``keys``: the training episodes of ``split`` (the ones the probe was fitted on and, with ``--fit-set train_pre``, the PCA axes)."""
+    train = set(split.train)
+    return np.array([k in train for k in keys])
+
+
 def standardise_all(x: np.ndarray, fit: np.ndarray | None = None) -> np.ndarray:
     """Every column to zero mean and unit standard deviation (plus 1e-6), in place, with float64 sums over chunks of rows. The statistics are those of the rows of the boolean mask
     ``fit`` (default: all rows); every row is standardised with them."""

@@ -10,6 +10,8 @@ most typical successful episode as a black arrow, outcome_ellipses_paths and mod
 outcome_ellipses_pairs (only when asked for) draws --pairs figures per subset, each with a random success and a random failure of any mode; outcome_3d_ellipsoids, outcome_3d_gaussians,
 mode_3d_ellipsoids and mode_3d_gaussians draw 3D Gaussians as ellipsoids with and without the points;
 outcome_3d and mode_3d draw the first three principal axes of PCA points from three directions;
+outcome_ellipses_pre_train_unseen and mode_ellipses_pre_train_unseen (only when asked for) draw the points and Gaussians of the pre window of the
+training episodes and of the unseen tasks side by side in one figure without a title, on the same axes;
 outcome_lines and mode_lines draw a sample of episodes as lines in those colours over the other points in grey, to follow the progression of an
 episode. See fp/eval/tsne_plots.py.
 
@@ -30,7 +32,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--points", type=Path, required=True)
     p.add_argument("--split")
-    p.add_argument("--colorings", nargs="+", choices=tsne_plots.FIGURES + tuple(tsne_plots.PAIRS))
+    p.add_argument("--colorings", nargs="+", choices=tsne_plots.FIGURES + tuple(tsne_plots.PAIRS) + tuple(tsne_plots.TRAIN_UNSEEN))
     p.add_argument("--seed", type=int, default=0, help="the seed of the random episodes of outcome_ellipses_pairs and of the order of the points; another seed draws other pairs (use another --out to keep both)")
     p.add_argument("--pairs", type=int, default=tsne_plots.N_PAIRS, help="the number of random pairs of a success and a failure drawn by outcome_ellipses_pairs")
     p.add_argument("--out", type=Path)

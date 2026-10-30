@@ -570,3 +570,27 @@ def test_the_axis_arrows_grow_with_the_font_scale():
     assert small[0][0] == pytest.approx(0.16) and small[1][1] == pytest.approx(0.16)  # as before at the default scale
     assert big[0][0] == pytest.approx(0.29) and big[1][1] == pytest.approx(0.29)  # 0.03 + 0.13 * 2
     tsne_plots.plt.close("all")
+
+
+def test_render_draws_the_train_unseen_figure_once_without_a_subset_in_its_name_and_the_mode_one_only_without_successes_when_asked_for_failures(tmp_path, monkeypatch):
+    from fp.eval import class_fits
+
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    monkeypatch.setattr(class_fits, "MIN_POINTS", 3)
+    path, _ = three_d_file(tmp_path)  # e0 and e2 are successes, e1 and e3 failures (modes 1 and 4)
+    keys = [f"e{i}" for i in range(4)]
+    monkeypatch.setattr(tsne_plots, "load_inputs", lambda dataset: SimpleNamespace(splits={"task_seed0": split(train=keys[:2], calibration=keys[2:3], unseen=keys[3:])}))
+    out = tmp_path / "pairs"
+    written = tsne_plots.render(path, colorings=["outcome_ellipses_pre_train_unseen", "mode_ellipses_pre_train_unseen"], out_dir=out)
+    assert sorted(w.name for w in written) == ["mode_ellipses_pre_train_unseen.png", "outcome_ellipses_pre_train_unseen.png"] and all(w.stat().st_size > 1000 for w in written)
+    only = tsne_plots.render(path, colorings=["outcome_ellipses_pre_train_unseen", "mode_ellipses_pre_train_unseen"], out_dir=tmp_path / "failures", failures_only=True)
+    assert [w.name for w in only] == ["mode_ellipses_pre_train_unseen_failures.png"]  # the outcome figure needs the successes
+    assert set(tsne_plots.TRAIN_UNSEEN) <= set(tsne_plots.MODE_FIT_FIGURES + tuple(tsne_plots.TRAIN_UNSEEN)) and not set(tsne_plots.TRAIN_UNSEEN) & set(tsne_plots.FIGURES)  # not drawn by default
+    assert "mode_ellipses_pre_train_unseen" in tsne_plots.MODE_FIT_FIGURES and "outcome_ellipses_pre_train_unseen" not in tsne_plots.MODE_FIT_FIGURES
+
+
+def test_the_train_mask_marks_the_training_episodes_of_the_split_and_render_uses_it_for_the_left_panel():
+    keys = ["a", "b", "c", "d"]
+    sp = split(train=["a", "c"], val=["b"], unseen=["d"])
+    assert tsne.train_mask(keys, sp).tolist() == [True, False, True, False]
+    assert not set(tsne.train_mask(keys, sp).nonzero()[0]) & set(tsne.subset_masks(keys, sp)["unseen"].nonzero()[0])  # none of them is unseen
