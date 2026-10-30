@@ -132,6 +132,7 @@ COLORINGS = {"task": by_task, "skill": by_skill, "outcome": by_outcome, "mode": 
 FIGURES = tuple(COLORINGS) + tuple(LINES) + tuple(ELLIPSES) + tuple(PATHS) + tuple(THREE_D) + tuple(THREE_D_FITS)  # everything ``render`` draws by default
 BASE = LINES | THREE_D | {name: kind for name, (kind, _, _) in THREE_D_FITS.items()}  # the colouring each line plot and 3D plot takes its colours from
 NEEDS_XYZ = tuple(THREE_D) + tuple(THREE_D_FITS)  # the figures that need the third principal axis
+MODE_FIT_FIGURES = tuple(name for table in (ELLIPSES, THREE_D_FITS) for name, entry in table.items() if entry[0] == "mode")  # the figures of the failure modes fitted to the classes: what failures_only draws
 
 
 def legend_handles(coloring: str, points: dict) -> list:
@@ -154,8 +155,8 @@ def add_mode_legend(fig, points: dict) -> None:
         bar = fig.add_axes([x, y, 0.06, 0.012])
         bar.imshow(mix(LIGHT_BLUE, end, np.linspace(0, 1, 64))[None], aspect="auto")
         bar.axis("off")
-        fig.text(x + 0.07, y + 0.006, label, fontsize=7.5, va="center")
-    fig.text(0.5, 0.012, "each point: light blue at the first step, the colour of its entry at the last step (success) or at the failure step (failure), constant after", fontsize=7, ha="center",
+        fig.text(x + 0.07, y + 0.006, label, fontsize=fs(7.5), va="center")
+    fig.text(0.5, 0.012, "each point: light blue at the first step, the colour of its entry at the last step (success) or at the failure step (failure), constant after", fontsize=fs(7), ha="center",
              color="0.35")
 
 
@@ -167,7 +168,7 @@ def add_ramps(fig, ax, coloring: str) -> None:
         bar.imshow(mix(LIGHT_BLUE, end, np.linspace(0, 1, 256))[None], aspect="auto")
         bar.set_xticks([])
         bar.set_yticks([])
-        bar.set_xlabel(label, fontsize=7.5, labelpad=2)
+        bar.set_xlabel(label, fontsize=fs(7.5), labelpad=2)
 
 
 def limits_of(xy: np.ndarray) -> tuple[tuple[float, float], ...]:
@@ -191,10 +192,11 @@ def axis_labels(points: dict) -> tuple[str, ...] | None:
 def add_axes_arrows(ax, labels: tuple[str, ...]) -> None:
     """A small coordinate system in the lower left corner of a 2D plot: an arrow to the right labelled with the first axis and one upwards with the second."""
     arrow = dict(arrowstyle="-|>", color="0.25", linewidth=1.2, shrinkA=0, shrinkB=0)
-    ax.annotate("", xy=(0.16, 0.03), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
-    ax.annotate("", xy=(0.03, 0.16), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
-    ax.text(0.16, 0.045, labels[0], transform=ax.transAxes, fontsize=8, color="0.25", ha="left", va="bottom")
-    ax.text(0.045, 0.16, labels[1], transform=ax.transAxes, fontsize=8, color="0.25", ha="left", va="bottom")
+    end = 0.03 + 0.13 * min(max(EXPORT.font_scale, 1.0), 2.5)  # the arrows grow with the text
+    ax.annotate("", xy=(end, 0.03), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
+    ax.annotate("", xy=(0.03, end), xytext=(0.03, 0.03), xycoords="axes fraction", arrowprops=arrow)
+    ax.text(end, 0.045, labels[0], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom")
+    ax.text(0.045, end, labels[1], transform=ax.transAxes, fontsize=fs(8), color="0.25", ha="left", va="bottom")
 
 
 def canvas(coloring: str, title: str, limits, labels: tuple[str, ...] | None = None):
@@ -205,7 +207,7 @@ def canvas(coloring: str, title: str, limits, labels: tuple[str, ...] | None = N
     ax.set_ylim(limits[1])
     ax.set_aspect("equal")
     ax.axis("off")
-    ax.set_title(title, fontsize=11)
+    ax.set_title(title, fontsize=fs(11))
     if labels:
         add_axes_arrows(ax, labels)
     return fig, ax
@@ -269,20 +271,20 @@ def draw_3d(points: dict, colors: np.ndarray, mask: np.ndarray, coloring: str, t
         ax.set_box_aspect([hi - lo for lo, hi in limits])
         ax.view_init(elev=elevation, azim=azimuth)
         if labels:
-            ax.set_xlabel(labels[0], fontsize=9, labelpad=-6)
-            ax.set_ylabel(labels[1], fontsize=9, labelpad=-6)
-            ax.set_zlabel(labels[2], fontsize=9, labelpad=-6)
+            ax.set_xlabel(labels[0], fontsize=fs(9), labelpad=-6)
+            ax.set_ylabel(labels[1], fontsize=fs(9), labelpad=-6)
+            ax.set_zlabel(labels[2], fontsize=fs(9), labelpad=-6)
             ax.set_xticklabels([])
             ax.set_yticklabels([])
             ax.set_zticklabels([])
             ax.tick_params(length=0)
         else:
             ax.set_axis_off()
-    fig.suptitle(title, fontsize=11)
+    fig.suptitle(title, fontsize=fs(11))
     if show_points:
         finish(fig, ax, coloring, points, path)
     else:
-        add_class_legend(fig, kind, fits or [], 4)
+        make_room(fig, add_class_legend(fig, kind, fits or [], 4))
         save(fig, path)
 
 
@@ -315,14 +317,43 @@ def add_path(ax, points: dict, episode: int, failure: bool = False, caption_row:
     if failure:
         ax.scatter(*path[-1], marker="X", color="black", s=70, edgecolors="white", linewidths=0.8, zorder=9)
     caption = f"{label} episode: {points['task'][episode]}"
-    ax.text(0.01, 0.99 - 0.035 * caption_row, caption if len(caption) <= CAPTION_CHARS else caption[: CAPTION_CHARS - 1] + "…", transform=ax.transAxes, fontsize=7, color="0.35", ha="left", va="top")
+    ax.text(0.01, 0.99 - 0.035 * caption_row, caption if len(caption) <= CAPTION_CHARS else caption[: CAPTION_CHARS - 1] + "…", transform=ax.transAxes, fontsize=fs(7), color="0.35", ha="left", va="top")
 
 
-def add_class_legend(fig, kind: str, fits: list, ncol: int, extra=()) -> None:
-    """A legend of the fitted classes under the plot: a swatch in the colour of each and its number of episodes, then the handles of ``extra``."""
+LEGEND_PT = 7.5  # the font size of a class legend before the font scale of the export
+
+
+def legend_layout(labels: list[str], max_columns: int, fig) -> tuple[int, float]:
+    """(the number of columns, the height as a fraction of the figure) of a legend of ``labels`` at the font size of the current export: as many columns as fit in the width of the
+    figure, at most ``max_columns`` (a character is about 0.55 em wide, the swatch and the gap count as 5 characters), and room for its rows plus a margin."""
+    width, height = fig.get_size_inches()
+    column = (max(map(len, labels)) + 5) * fs(LEGEND_PT) * 0.55 / 72
+    columns = max(1, min(max_columns, int(0.95 * width // column)))
+    rows = -(-len(labels) // columns)
+    return columns, (rows * fs(LEGEND_PT) * 1.6 / 72 + 0.12) / height
+
+
+def make_room(fig, bottom: float) -> None:
+    """Make the bottom margin of ``fig`` at least ``bottom`` (a fraction of its height now) by making the figure taller, so that the plot keeps its size."""
+    params = fig.subplotpars
+    if bottom <= params.bottom:
+        return
+    width, height = fig.get_size_inches()
+    margin, top = bottom * height, (1 - params.top) * height  # inches
+    new_height = height + margin - params.bottom * height
+    fig.set_size_inches(width, new_height)
+    fig.subplots_adjust(bottom=margin / new_height, top=1 - top / new_height)
+
+
+def add_class_legend(fig, kind: str, fits: list, ncol: int, extra=()) -> float:
+    """A legend of the fitted classes under the plot: a swatch in the colour of each and its number of episodes, then the handles of ``extra``, in at most ``ncol`` columns
+    (fewer if the text does not fit). Returns the bottom margin (fraction of the figure) the legend needs, which the caller makes sure is there."""
     handles = [Patch(color=class_color(kind, f.id), label=f"{f.name} ({f.episodes} episodes)") for f in fits] + list(extra)
-    if handles:
-        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=ncol, fontsize=7.5, frameon=False, handlelength=1.0, columnspacing=1.2)
+    if not handles:
+        return 0.0
+    columns, height = legend_layout([h.get_label() for h in handles], ncol, fig)
+    fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=columns, fontsize=fs(LEGEND_PT), frameon=False, handlelength=1.0, columnspacing=1.2)
+    return height + 0.03
 
 
 def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure: str, title: str, path: Path, limits, show_points: bool = True,
@@ -349,7 +380,7 @@ def draw_ellipses(points: dict, mask: np.ndarray, kind: str, window: str, figure
     if failure_episode is not None:
         add_path(ax, points, failure_episode, True, int(path_episode is not None), failure_mode)
         extra.append(Line2D([0], [0], color="black", linewidth=2.0, linestyle="--", label=f"one {failure_mode} episode (X: failure step)"))
-    add_class_legend(fig, kind, fits, 2 if len(fits) + len(extra) > 3 else 3, extra)
+    make_room(fig, add_class_legend(fig, kind, fits, 2 if len(fits) + len(extra) > 3 else 3, extra))
     save(fig, path)
     return fits
 
@@ -362,6 +393,7 @@ class Export:
     formats: tuple[str, ...] = ("png",)
     title: bool = True
     tight: bool = False
+    font_scale: float = 1.0  # multiplies every font size (``fs``); legends then take fewer columns and more room
 
 
 EXPORT = Export()  # the setting of the figures being drawn: changed only by ``exporting``
@@ -376,6 +408,11 @@ def exporting(export: Export):
         yield
     finally:
         EXPORT = previous
+
+
+def fs(size: float) -> float:
+    """A font size of the current export: ``size`` times its ``font_scale``."""
+    return size * EXPORT.font_scale
 
 
 def exported(path: Path) -> list[Path]:
@@ -399,7 +436,7 @@ def finish(fig, ax, coloring: str, points: dict, path: Path) -> None:
     """The legend and the ramps of ``coloring`` (the colouring a line plot takes its colours from), then the file."""
     handles = legend_handles(coloring, points)
     if handles:
-        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=4, fontsize=7.5, frameon=False, handlelength=1.0, columnspacing=1.2)
+        fig.legend(handles=handles, loc="lower center", bbox_to_anchor=(0.5, 0.01), ncol=4, fontsize=fs(7.5), frameon=False, handlelength=1.0, columnspacing=1.2)
     if coloring == "outcome":
         add_ramps(fig, ax, coloring)
     if coloring == "mode":
@@ -414,13 +451,16 @@ def embedding_title(config: dict) -> str:
 
 
 def render(points_path: Path, split: str | None = None, out_dir: Path | None = None, colorings=None, subsets=SUBSETS, seed: int = 0, path_mode: str = PATH_MODE,
-           n_pairs: int = N_PAIRS, titles: tuple[bool, ...] = (True,), formats: tuple[str, ...] = ("png",), tight: bool = False) -> list[Path]:
+           n_pairs: int = N_PAIRS, titles: tuple[bool, ...] = (True,), formats: tuple[str, ...] = ("png",), tight: bool = False, failures_only: bool = False,
+           font_scale: float = 1.0) -> list[Path]:
     """Draw ``<out_dir>/<figure>__<subset>.<format>`` for every figure (a colouring or a line plot, ``FIGURES``), subset and format (``Export``) of the points saved in
     ``points_path`` (default out_dir: ``figures/<split>/`` next to it). ``titles`` says whether the figures have a title (``(True,)``), none (``(False,)``) or both, which are
     then drawn into the folders ``with_title`` and ``without_title`` of ``out_dir``. The episodes of a line plot are a sample that depends on the subset and ``seed`` only, so that
     ``outcome_lines`` and ``mode_lines`` draw the same. ``split`` is the split whose seen / held-out / unseen episodes the subsets are: the probe's own for a probe (the default), any
     for the VLA embedding. A figure the points cannot show (skill without skills, lines for one point per episode, 3D without a third axis) and a subset that is empty are
-    skipped. Returns the files written."""
+    skipped. With ``failures_only`` only the figures of ``MODE_FIT_FIGURES`` are drawn, without the successes (not in the points, the fits, the legend or the axis limits), as
+    ``<figure>_failures__<subset>``: for a layer of the probe that is not supervised on successes, like the mode head. ``font_scale`` multiplies every font size (the legends of
+    the Gaussian figures take fewer columns and more room; other legends and the colour ramps keep their layout). Returns the files written."""
     points = load_points(points_path)
     split = split or points["config"]["split"]
     out_dir = out_dir or points_path.parent / "figures" / split
@@ -428,17 +468,21 @@ def render(points_path: Path, split: str | None = None, out_dir: Path | None = N
     written = []
     for with_title in titles:
         folder = out_dir / ("with_title" if with_title else "without_title") if len(titles) > 1 else out_dir
-        with exporting(Export(tuple(formats), with_title, tight)):
-            written += draw_figures(points, masks, folder, colorings, subsets, seed, path_mode, n_pairs)
+        with exporting(Export(tuple(formats), with_title, tight, font_scale)):
+            written += draw_figures(points, masks, folder, colorings, subsets, seed, path_mode, n_pairs, failures_only)
     return written
 
 
-def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, seed: int, path_mode: str, n_pairs: int) -> list[Path]:
+def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, seed: int, path_mode: str, n_pairs: int, failures_only: bool = False) -> list[Path]:
     """The figures of ``render`` for the current export, written into ``out_dir``; returns the files."""
     order = np.random.default_rng(seed).permutation(len(points["xy"]))
-    limits, written = limits_of(points["xy"]), []
-    limits3 = limits_of(points["xyz"]) if "xyz" in points else None
+    keep = ~points["success"][points["episode"]] if failures_only else np.ones(len(points["xy"]), bool)  # the points that are drawn and fitted
+    limits, written = limits_of(points["xy"][keep]), []
+    limits3 = limits_of(points["xyz"][keep]) if "xyz" in points else None
+    only, suffix = (", failures only", "_failures") if failures_only else ("", "")
     for figure in colorings or FIGURES:
+        if failures_only and figure not in MODE_FIT_FIGURES:
+            continue
         if (figure == "skill" and not skills_of(points)) or (figure in tuple(LINES) + tuple(PATHS) + tuple(PAIRS) and points["config"].get("unit") == "episode") or (figure in NEEDS_XYZ and "xyz" not in points):
             continue
         coloring = BASE.get(figure, figure)
@@ -449,11 +493,11 @@ def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, s
                 continue
             head = f"{embedding_title(points['config'])}\n{SUBSET_TITLES[subset]}"
             title = f"{head} ({int(episodes.sum())} episodes)"
-            path = out_dir / f"{figure}__{subset}.png"
+            path = out_dir / f"{figure}{suffix}__{subset}.png"
             if figure in ELLIPSES:
                 kind, window, show_points = ELLIPSES[figure]
-                draw_ellipses(points, episodes[points["episode"]], kind, window, figure, f"{head}: 1σ ellipses{'' if show_points else ' only'}, {WINDOW_TITLES[window]}", path, limits,
-                              show_points)
+                draw_ellipses(points, episodes[points["episode"]] & keep, kind, window, figure, f"{head}: 1σ ellipses{'' if show_points else ' only'}, {WINDOW_TITLES[window]}{only}", path,
+                              limits, show_points)
             elif figure in PAIRS:
                 kind, window = PAIRS[figure]
                 mask = episodes[points["episode"]]
@@ -474,8 +518,8 @@ def draw_figures(points: dict, masks: dict, out_dir: Path, colorings, subsets, s
                 draw_ellipses(points, mask, kind, window, figure, f"{head}: 1σ ellipses, {what}", path, limits, True, success, failure, path_mode)
             elif figure in THREE_D_FITS:
                 kind, show_points, window = THREE_D_FITS[figure]
-                mask = episodes[points["episode"]]
-                draw_3d(points, colors, mask, coloring, f"{head.replace(chr(10), ': ')}: 1σ ellipsoids{'' if show_points else ' only'}, {WINDOW_TITLES[window]}", path, limits3,
+                mask = episodes[points["episode"]] & keep
+                draw_3d(points, colors, mask, coloring, f"{head.replace(chr(10), ': ')}: 1σ ellipsoids{'' if show_points else ' only'}, {WINDOW_TITLES[window]}{only}", path, limits3,
                         np.random.default_rng([seed, SUBSETS.index(subset)]), class_fits.fit_classes(points, kind, mask, window, "xyz"), kind, show_points)
             elif figure in THREE_D:
                 draw_3d(points, colors, episodes[points["episode"]], coloring, f"{head.replace(chr(10), ': ')} ({int(episodes.sum())} episodes)", path, limits3,

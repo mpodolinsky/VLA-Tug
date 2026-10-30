@@ -13,6 +13,8 @@ outcome_3d and mode_3d draw the first three principal axes of PCA points from th
 outcome_lines and mode_lines draw a sample of episodes as lines in those colours over the other points in grey, to follow the progression of an
 episode. See fp/eval/tsne_plots.py.
 
+--failures-only leaves the successes out of the failure-mode Gaussian and ellipse figures (points, fits, legend): the mode head is not supervised on successes.
+
 For a paper: --titles both writes every figure with and without its title into DIR/with_title and DIR/without_title (needs --out), --formats png pdf writes a PNG and a PDF
 (vector graphics) of each, and --tight crops the blank margins around the figure.
 """
@@ -36,6 +38,8 @@ def main() -> None:
     p.add_argument("--titles", choices=("with", "without", "both"), default="with", help="draw the figures with their title, without it, or both (into DIR/with_title and DIR/without_title)")
     p.add_argument("--formats", nargs="+", choices=("png", "pdf"), default=["png"], help="the file formats of every figure (pdf is vector graphics)")
     p.add_argument("--tight", action="store_true", help="crop the blank margins around the figures")
+    p.add_argument("--font-scale", type=float, default=1.0, help="multiply every font size of the figures (1.8 is a large text for a paper); the legends of the Gaussian figures take fewer columns and more room")
+    p.add_argument("--failures-only", action="store_true", help="draw only the failure-mode Gaussian and ellipse figures (mode_*_gaussians, mode_*_ellipses, mode_3d_*) without the successes, as <figure>_failures: for a layer that is not supervised on successes, like the mode head")
     p.add_argument("--path-mode", choices=MODE_NAMES, default=tsne_plots.PATH_MODE, help="the failure mode of the failure drawn by outcome_ellipses_paths and mode_ellipses_paths")
     args = p.parse_args()
     if tsne_plots.load_points(args.points)["config"]["embedding"] == "vla" and not args.split:
@@ -44,7 +48,8 @@ def main() -> None:
         p.error("--titles both needs --out (the folders with_title and without_title are made in it)")
     titles = {"with": (True,), "without": (False,), "both": (True, False)}[args.titles]
     for path in tsne_plots.render(args.points, args.split, args.out, args.colorings, subsets=tuple(args.subsets), seed=args.seed, path_mode=args.path_mode, n_pairs=args.pairs,
-                                titles=titles, formats=tuple(args.formats), tight=args.tight):
+                                titles=titles, formats=tuple(args.formats), tight=args.tight,
+                                failures_only=args.failures_only, font_scale=args.font_scale):
         print(f"wrote {path}")
 
 

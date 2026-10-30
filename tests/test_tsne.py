@@ -494,3 +494,79 @@ def test_the_title_says_when_the_axes_are_fitted_on_the_training_episodes_and_th
     assert tsne_plots.embedding_title(config | {"fit_set": "all"}) == "VLA embedding, PCA" and tsne_plots.embedding_title({**config, "reducer": "tsne", "fit_set": "train_pre"}) == "VLA embedding"
     assert tsne_plots.ELLIPSES["mode_gaussians_pre"] == ("mode", "pre", False) and tsne_plots.ELLIPSES["outcome_gaussians_pre"] == ("outcome", "pre", False)
     assert {"mode_gaussians_pre", "outcome_gaussians_pre"} <= set(tsne_plots.BOTTOM) and {"mode_gaussians_pre", "outcome_gaussians_pre"} <= set(tsne_plots.FIGURES)
+
+
+def test_failures_only_draws_the_failure_mode_gaussians_without_the_successes_and_skips_every_other_figure(tmp_path, monkeypatch):
+    from fp.eval import class_fits
+
+    monkeypatch.setattr(class_fits, "MIN_EPISODES", 1)
+    monkeypatch.setattr(class_fits, "MIN_POINTS", 3)
+    path, xyz = three_d_file(tmp_path)  # episodes 0 and 2 are successes, 1 and 3 failures of the modes 1 and 4
+    keys = [f"e{i}" for i in range(4)]
+    monkeypatch.setattr(tsne_plots, "load_inputs", lambda dataset: SimpleNamespace(splits={"task_seed0": split(train=keys[:2], calibration=keys[2:3], seen=keys[3:])}))
+    drawn, fitted, limits = [], [], []
+    monkeypatch.setattr(tsne_plots, "save", lambda fig, file: (drawn.append((file.name, [t.get_text() for t in fig.legends[0].get_texts()], fig.get_suptitle() or fig.axes[0].get_title())), tsne_plots.plt.close(fig)))
+    original = class_fits.fit_classes
+    monkeypatch.setattr(class_fits, "fit_classes", lambda points, kind, subset, window, columns="xy": (fitted.append((kind, subset.copy(), points["success"][points["episode"]])), original(points, kind, subset, window, columns))[1])
+    monkeypatch.setattr(tsne_plots, "limits_of", lambda x: limits.append(len(x)) or ((0.0, 1.0),) * x.shape[1])
+    figures = ["mode_gaussians_pre", "outcome_gaussians_pre", "mode_3d_gaussians_pre", "mode_ellipses_pre", "mode_ellipses_paths", "mode", "mode_3d"]
+    written = tsne_plots.render(path, colorings=figures, subsets=["all"], failures_only=True)
+    assert [w.name for w in written] == ["mode_gaussians_pre_failures__all.png", "mode_3d_gaussians_pre_failures__all.png", "mode_ellipses_pre_failures__all.png"]  # the others are skipped
+    assert [name for name, _, _ in drawn] == [w.name for w in written]
+    assert all(not (subset & success).any() for kind, subset, success in fitted) and all(kind == "mode" for kind, _, _ in fitted)  # nothing of a success is fitted
+    legends = [legend for _, legend, _ in drawn]
+    assert all(len(legend) == 2 and not any("success" in entry for entry in legend) for legend in legends)  # the two failure modes only
+    assert all(title.endswith(", failures only") for _, _, title in drawn)  # the 2D titles are on the axes, the 3D one is the title of the figure
+    assert limits == [20, 20]  # the axis limits are those of the 20 points of the two failures (of 40), for the plane and for the three axes
+    assert tsne_plots.MODE_FIT_FIGURES and all(f.startswith("mode") for f in tsne_plots.MODE_FIT_FIGURES) and "mode_ellipses_paths" not in tsne_plots.MODE_FIT_FIGURES
+    drawn.clear()
+    tsne_plots.render(path, colorings=["mode_gaussians_pre"], subsets=["all"])
+    assert drawn[0][0] == "mode_gaussians_pre__all.png" and any("success" in entry for entry in drawn[0][1])  # by default: the successes are in, no suffix
+
+
+def test_the_font_scale_multiplies_every_font_size_and_the_class_legend_takes_fewer_columns_and_more_room():
+    from fp.data.targets import MODE_NAMES
+
+    fits = [SimpleNamespace(id=i, name=name, episodes=100) for i, name in enumerate(["success", "wrong_object", "stuck_or_no_progress", "wrong_target", "placement_or_insertion_failure"])]
+    limits = ((0.0, 1.0), (0.0, 1.0))
+    fig, ax = tsne_plots.canvas("mode_gaussians_pre", "t", limits, ("PC1", "PC2"))
+    columns = tsne_plots.legend_layout(["placement_or_insertion_failure (100 episodes)"] * 5, 2, fig)[0]
+    needed = tsne_plots.add_class_legend(fig, "mode", fits, 2)
+    base = (ax.title.get_fontsize(), [t.get_fontsize() for t in ax.texts if t.get_text()], fig.legends[0].get_texts()[0].get_fontsize(), fig.legends[0]._ncols)
+    assert base == (11, [8, 8], 7.5, 2) and columns == 2 and needed < 0.2 and tsne_plots.EXPORT.font_scale == 1.0  # the defaults: as before, and BOTTOM has the room
+    with tsne_plots.exporting(tsne_plots.Export(font_scale=2.0)):
+        big, big_ax = tsne_plots.canvas("mode_gaussians_pre", "t", limits, ("PC1", "PC2"))
+        big_needed = tsne_plots.add_class_legend(big, "mode", fits, 2)
+        scaled = (big_ax.title.get_fontsize(), [t.get_fontsize() for t in big_ax.texts if t.get_text()], big.legends[0].get_texts()[0].get_fontsize(), big.legends[0]._ncols)
+        assert tsne_plots.fs(7.5) == 15.0
+    assert scaled == (22, [16, 16], 15.0, 1)  # every size doubled; the long entries no longer fit two to a row
+    assert big_needed > 2 * needed and tsne_plots.EXPORT.font_scale == 1.0  # more rows of larger text need more room, and the setting is restored
+    short = tsne_plots.legend_layout(["success (200 episodes)", "failure (230 episodes)"], 3, fig)
+    assert short[0] == 3 and short[1] < 0.06  # two short entries stay in one row
+    assert len(MODE_NAMES) == 10
+
+
+def test_making_room_grows_the_figure_so_that_the_plot_keeps_its_size_and_does_nothing_when_there_is_room():
+    fig, _ = tsne_plots.plt.subplots(figsize=(6.0, 6.0))
+    fig.subplots_adjust(bottom=0.2, top=0.91)
+    before = (fig.subplotpars.top - fig.subplotpars.bottom) * 6.0  # inches of plot
+    tsne_plots.make_room(fig, 0.1)
+    assert tuple(fig.get_size_inches()) == (6.0, 6.0) and fig.subplotpars.bottom == 0.2  # there is room
+    tsne_plots.make_room(fig, 0.4)
+    width, height = fig.get_size_inches()
+    assert (width, height) == (6.0, pytest.approx(7.2))  # 2.4 inches of margin instead of 1.2
+    assert fig.subplotpars.bottom * height == pytest.approx(2.4) and (fig.subplotpars.top - fig.subplotpars.bottom) * height == pytest.approx(before)
+    assert (1 - fig.subplotpars.top) * height == pytest.approx(0.09 * 6.0)  # the margin above is as many inches as before
+    tsne_plots.plt.close(fig)
+
+
+def test_the_axis_arrows_grow_with_the_font_scale():
+    limits = ((0.0, 1.0), (0.0, 1.0))
+    _, ax = tsne_plots.canvas("outcome", "t", limits, ("PC1", "PC2"))
+    small = [t.get_position() for t in ax.texts if t.get_text()]
+    with tsne_plots.exporting(tsne_plots.Export(font_scale=2.0)):
+        _, big_ax = tsne_plots.canvas("outcome", "t", limits, ("PC1", "PC2"))
+        big = [t.get_position() for t in big_ax.texts if t.get_text()]
+    assert small[0][0] == pytest.approx(0.16) and small[1][1] == pytest.approx(0.16)  # as before at the default scale
+    assert big[0][0] == pytest.approx(0.29) and big[1][1] == pytest.approx(0.29)  # 0.03 + 0.13 * 2
+    tsne_plots.plt.close("all")
