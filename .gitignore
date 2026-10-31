@@ -10,3 +10,6 @@ results/*
 # working documents, kept on disk only
 TESTS.md
 REVIEW_pure_logic.md
+WORKLOG.md
+# the paper's Overleaf clone lives in notes/ (its own git repository)
+notes/
