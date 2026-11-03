@@ -2,7 +2,7 @@
 
 | what | licence | file |
 |---|---|---|
-| source code (`fp/`, `cli/`, `tests/`, `checks/`), except the files named in `NOTICE` | MIT | `LICENSE` |
+| source code (`fp/`, `cli/`, `tests/`), except the files named in `NOTICE` | MIT | `LICENSE` |
 | documentation (`docs/`, `*.md`), published features, and committed results | CC BY 4.0 | `LICENSE-DATA-CC-BY-4.0.txt` |
 | files derived from other projects | see `NOTICE` | |
 

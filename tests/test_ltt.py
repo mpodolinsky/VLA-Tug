@@ -196,7 +196,7 @@ def test_selection_prefers_tpr_early_then_fpr_then_the_lowest_tau():
 
 def test_guarantee_holds_in_simulation_the_family_wise_error_is_below_delta():
     """Known true risks from a large reference sample; over 150 calibration draws the chance that ANY accepted tau truly violates a
-    target must be <= delta = 0.1 (the chance of accepting nothing is irrelevant here). The longer simulation is in checks/."""
+    target must be <= delta = 0.1 (the chance of accepting nothing is irrelevant here)."""
     rng = np.random.default_rng(11)
     L = 35
 
