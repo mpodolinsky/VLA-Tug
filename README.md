@@ -1,4 +1,4 @@
-# VLA-Tug: Anticipating When and How Vision-Language-Action Models Fail
+# VLA-Tug: Anticipating When and How Vision-Language-Action Models Fail via Calibrated Latent Probing
 
 [![Project Page](https://img.shields.io/badge/Project-Page-green)](https://vla-tug.github.io)
 ![Paper](https://img.shields.io/badge/Paper-under%20review-lightgrey)
