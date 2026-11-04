@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VLA-Tug: Anticipating When and How Vision-Language-Action Models Fail via Calibrated Latent Probing</title>
+  <meta name="description" content="VLA-Tug is a lightweight probe on the latent layers of a Vision-Language-Action model that predicts a failure before it happens, predicts its mode, and comes with calibrated error guarantees.">
+  <meta name="author" content="Anonymous authors">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="VLA-Tug">
+  <meta property="og:title" content="VLA-Tug: Anticipating When and How Vision-Language-Action Models Fail">
+  <meta property="og:description" content="A lightweight latent probe that anticipates VLA failures, names their mode and bounds its errors.">
+  <meta property="og:image" content="assets/img/overview.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="assets/css/style.css">
+  <script src="assets/js/main.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="brand" href="#top">VLA-Tug</a>
+    <nav aria-label="Sections">
+      <a href="#video">Video</a>
+      <a href="#abstract">Abstract</a>
+      <a href="#method">Method</a>
+      <a href="#results">Results</a>
+      <a href="#data">Data</a>
+      <a href="#code">Code</a>
+      <a href="#bibtex">BibTeX</a>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+<section class="hero" id="top">
+  <div class="wrap">
+    <div class="hero-head">
+      <img class="logo" src="assets/img/logo.webp" alt="Drawing of a small tugboat labelled VLA-Tug pulling a large container ship labelled VLA" width="1536" height="1024">
+      <h1>
+        <span class="wordmark">VLA-Tug</span><span class="visually-hidden">: </span>
+        <span class="title">Anticipating When and How Vision-Language-Action Models Fail via Calibrated Latent Probing</span>
+      </h1>
+    </div>
+
+    <!-- TODO (after the review period): replace with the real author list, as in the paper's arXiv version:
+         <ul class="authors"><li><a href="URL">Name</a><sup>1</sup></li> ...</ul>
+         <ul class="affiliations"><li><sup>1</sup>Institution</li> ...</ul>
+         <p class="contact"><sup>*</sup>Corresponding author: <a href="mailto:...">...</a></p> -->
+    <p class="authors-anon">Anonymous authors</p>
+    <p class="status">Paper under review</p>
+
+    <div class="links">
+      <span class="btn btn-soon" aria-disabled="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/></svg>
+        Paper <span class="soon">arXiv soon</span>
+      </span>
+      <a class="btn" href="#video">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M10 8.5l5 3.5-5 3.5z"/></svg>
+        Video
+      </a>
+      <!-- TODO: replace with the final code link; during review this is the anonymous mirror. -->
+      <a class="btn" href="https://anonymous.4open.science/r/VLA-Tug/">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5M13 5l-2 14"/></svg>
+        Code
+      </a>
+      <span class="btn btn-soon" aria-disabled="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="5.5" rx="7" ry="2.5"/><path d="M5 5.5v13c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-13M5 12c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5"/></svg>
+        Data <span class="soon">soon</span>
+      </span>
+      <a class="btn btn-light" href="#bibtex">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4H8a2 2 0 0 0-2 2v3.5A2.5 2.5 0 0 1 3.5 12 2.5 2.5 0 0 1 6 14.5V18a2 2 0 0 0 2 2h1M15 4h1a2 2 0 0 1 2 2v3.5a2.5 2.5 0 0 0 2.5 2.5 2.5 2.5 0 0 0-2.5 2.5V18a2 2 0 0 1-2 2h-1"/></svg>
+        BibTeX
+      </a>
+    </div>
+  </div>
+</section>
+
+<section class="teaser" aria-labelledby="teaser-title">
+  <div class="wrap">
+    <h2 id="teaser-title">Anticipate the failure. Name its mode. Bound the errors.</h2>
+    <p class="lede">A small probe reads the latent layers of a Vision-Language-Action model while it acts. It raises an alarm <em>before</em> the failure, predicts <em>how</em> the policy fails, and its alarm threshold is calibrated to hold false-alarm and missed-detection targets.</p>
+    <figure class="figure">
+      <img src="assets/img/overview.png" alt="Overview of VLA-Tug: the probe on the VLA's latent layers, its three heads, and the calibrated alarm.">
+      <figcaption><b>Overview.</b> We introduce VLA-Tug, a probe on the VLA backbone embeddings that predicts failures and their mode. (a) A recurrent encoder maps the embedding into a latent failure space; a score head and a calibrated trigger raise the alarm, and a mode head then predicts the failure mode. (b) VLA-Tug alarms before the failure, allowing early stopping or intervention by an expert model.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="video" aria-labelledby="video-title">
+  <div class="wrap narrow">
+    <h2 class="section-title" id="video-title">Video</h2>
+    <div class="placeholder">
+      <p><b>Video placeholder.</b> Put the overview video at <code>media/video/overview.mp4</code> and replace this block with a <code>&lt;video&gt;</code> element (see <code>README.md</code>), or embed a hosted video.</p>
+    </div>
+    <h3>Demos</h3>
+    <div class="grid3">
+      <div class="placeholder small"><p>Demo 1: success episode</p></div>
+      <div class="placeholder small"><p>Demo 2: failure caught early</p></div>
+      <div class="placeholder small"><p>Demo 3: predicted failure mode</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="abstract" aria-labelledby="abstract-title">
+  <div class="wrap narrow">
+    <h2 class="section-title" id="abstract-title">Abstract</h2>
+    <!-- TODO: keep in sync with the paper's abstract. The steering sentence of the paper's draft is left out on purpose. -->
+    <p>Vision-Language-Action models (VLAs) enable general-purpose embodied intelligence, but their performance is brittle under distribution shift, where unanticipated failures can damage equipment or endanger people. Deploying VLAs in real-world systems therefore requires a runtime monitor that is <em>timely</em>, <em>calibrated</em>, and <em>informative</em> while being <em>efficient</em> enough to run on the edge. Existing methods fail to fulfill these requirements. We present VLA-Tug, a lightweight probe over the latent layers of a VLA backbone that improves early failure detection and bounds the missed-detection and false-alarm rates, with minimal inference overhead. We show that supervising on the pre-failure segment of a trajectory increases early failure detection at matched false-positive rates by up to 30% over the strongest learned baseline. Under shift to unseen tasks, the bounds on missed-detection and false-alarm rates remain valid in up to 86% of runs, versus at most 21% for baselines. Unlike existing methods, VLA-Tug predicts the failure mode to enable corrective actions, raising top-3 accuracy on unseen tasks by up to 44% over a majority baseline. We release a dataset of 3,180 annotated manipulation episodes to support future work on latent failure detection in VLAs.</p>
+  </div>
+</section>
+
+<section class="section alt" id="method" aria-labelledby="method-title">
+  <div class="wrap">
+    <h2 class="section-title" id="method-title">Probe the latent layers. Calibrate the alarm.</h2>
+    <div class="cards">
+      <article class="card"><span class="num">1</span><h3>Pool</h3><p>Average the backbone embedding of every policy step over the agent-image, wrist-image and language tokens: a 6144-d vector per step.</p></article>
+      <article class="card"><span class="num">2</span><h3>Train</h3><p>Train a probe on the steps that precede a failure: an LSTM over the embeddings with a failure-score head, a failure-mode head and a semantic (CLIP) head.</p></article>
+      <article class="card"><span class="num">3</span><h3>Calibrate</h3><p>Set the alarm threshold on held-out rollouts with max-conformal prediction or Learn-then-Test, which bounds the false-positive rate and the early true-positive rate together.</p></article>
+      <article class="card"><span class="num">4</span><h3>Evaluate</h3><p>Score against annotated failure times: the area under the early true-positive rate versus false-positive rate curve up to 40%.</p></article>
+    </div>
+    <figure class="figure">
+      <div class="placeholder"><p><b>Figure placeholder.</b> Method figure (probe architecture and calibration), <code>assets/img/method.png</code>.</p></div>
+    </figure>
+  </div>
+</section>
+
+<section class="section" id="results" aria-labelledby="results-title">
+  <div class="wrap">
+    <h2 class="section-title" id="results-title">Results</h2>
+    <p class="lede">TODO: one sentence on the headline result. Numbers must match the paper's tables.</p>
+    <div class="grid3">
+      <figure class="figure"><div class="placeholder small"><p>Key plot: early detection versus false-positive rate</p></div><figcaption><b>Early detection.</b> TODO.</figcaption></figure>
+      <figure class="figure"><div class="placeholder small"><p>Calibration under task shift</p></div><figcaption><b>Calibration.</b> TODO.</figcaption></figure>
+      <figure class="figure"><div class="placeholder small"><p>Failure-mode prediction</p></div><figcaption><b>Failure modes.</b> TODO.</figcaption></figure>
+    </div>
+    <h3>Latent space</h3>
+    <div class="placeholder"><p>Latent-space and trajectory figures (appendix), <code>assets/img/latent_*.png</code>.</p></div>
+  </div>
+</section>
+
+<section class="section alt" id="data" aria-labelledby="data-title">
+  <div class="wrap narrow">
+    <h2 class="section-title" id="data-title">Dataset</h2>
+    <p>Pooled embeddings and annotations of simulated rollouts of two VLAs (GR00T-N1.7 and &pi;0.5) on LIBERO-10 with occlusions and on LIBERO-X, with failure times and failure modes. Dataset: <span class="soon-inline">link soon</span>.</p>
+    <table class="table">
+      <thead><tr><th>Set</th><th>Policy</th><th>Episodes</th></tr></thead>
+      <tbody>
+        <tr><td>LIBERO-10 (occluded)</td><td>GR00T-N1.7</td><td>TODO</td></tr>
+        <tr><td>LIBERO-10 (occluded)</td><td>&pi;0.5</td><td>TODO</td></tr>
+        <tr><td>LIBERO-X</td><td>GR00T-N1.7</td><td>TODO</td></tr>
+        <tr><td>Real robot (8 tasks)</td><td>GR00T-N1.7</td><td>TODO</td></tr>
+      </tbody>
+    </table>
+    <p class="note">TODO: the total is 3,180 simulated episodes; fill in the per-set counts from the paper's dataset table.</p>
+  </div>
+</section>
+
+<section class="section" id="code" aria-labelledby="code-title">
+  <div class="wrap narrow">
+    <h2 class="section-title" id="code-title">Code and reproduction</h2>
+    <p>The code covers the probe, the calibration (SAFE band, max-conformal, Learn-then-Test), the baselines, the metrics and the scripts that produce the paper's tables and figures.</p>
+<pre class="code"><code>pip install -e ".[dev]"
+python -m cli.download liberox_groot       # pooled features, targets, manifest, splits
+python -m cli.train --datasets liberox_groot
+python -m cli.evaluate --datasets liberox_groot
+python -m cli.figures                      # main table, ablations, curves</code></pre>
+    <p class="note">These commands are taken from the repository README. During review the code is at the anonymous mirror linked above.</p>
+  </div>
+</section>
+
+<section class="section bibtex alt" id="bibtex" aria-labelledby="bibtex-title">
+  <div class="wrap narrow">
+    <h2 class="section-title" id="bibtex-title">BibTeX</h2>
+    <div class="bibbox">
+      <button class="copy" type="button" data-copy="bib">Copy</button>
+<pre id="bib"><code>@misc{vla-tug,
+  title  = {VLA-Tug: Anticipating When and How Vision-Language-Action Models Fail via Calibrated Latent Probing},
+  author = {Anonymous},
+  year   = {2026},
+  note   = {Under review}
+}</code></pre>
+    </div>
+    <p class="note">TODO: replace with the final entry (authors, arXiv id) once the paper is public.</p>
+  </div>
+</section>
+
+</main>
+
+<footer class="footer">
+  <div class="wrap">
+    <p>VLA-Tug &middot; Paper under review &middot; <a href="#top">Back to top</a></p>
+    <p class="small">The page template follows the structure of project pages such as <a href="https://form-robots.github.io/">form-robots.github.io</a>; the design and code here are written from scratch.</p>
+  </div>
+</footer>
+
+</body>
+</html>

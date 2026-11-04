@@ -1,0 +1,108 @@
+/* VLA-Tug project page: written from scratch. Plain CSS, no build step. */
+/* Palette: shades of one hue around the main colour rgb(230, 230, 255) (#e6e6ff, hue 240). */
+:root {
+  --tint: rgb(230, 230, 255);   /* the main colour: hero, top bar, pills, placeholders */
+  --bg: #ffffff;
+  --bg-alt: #f1f1ff;            /* alternate sections, code blocks: a paler shade of the main colour */
+  --ink: #1c1c4a;               /* text: a deep shade of the same hue */
+  --ink-soft: #505082;
+  --accent: #3d3dab;            /* links, buttons, wordmark */
+  --accent-ink: #ffffff;
+  --line: #cfcfee;
+  --soon: #8383ad;
+  --radius: 10px;
+  --topbar-h: 56px;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --tint: #23234f; --bg: #12122a; --bg-alt: #1a1a3a; --ink: rgb(230, 230, 255); --ink-soft: #b3b3dd; --accent: #a9a9ff; --accent-ink: #12122a; --line: #34345f; --soon: #8a8ab8; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--topbar-h) + 12px); }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+a { color: var(--accent); }
+img { max-width: 100%; height: auto; display: block; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.92em; }
+.wrap { width: min(1100px, 100% - 32px); margin-inline: auto; }
+.narrow { width: min(760px, 100% - 32px); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: -999px; top: 0; background: var(--accent); color: var(--accent-ink); padding: 8px 12px; z-index: 20; }
+.skip:focus { left: 8px; top: 8px; }
+
+/* top bar: always visible and sticky; the wordmark appears once the hero scrolls away */
+.topbar { position: sticky; top: 0; height: var(--topbar-h); background: color-mix(in srgb, var(--tint) 94%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); z-index: 10; }
+.topbar-inner { display: flex; align-items: center; height: 100%; gap: 16px; }
+.brand { font-weight: 800; text-decoration: none; color: var(--accent); letter-spacing: .01em; opacity: 0; pointer-events: none; transition: opacity .2s ease; }
+.topbar.is-stuck .brand { opacity: 1; pointer-events: auto; }
+.topbar nav { display: flex; flex: 1; justify-content: flex-end; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.topbar nav::-webkit-scrollbar { display: none; }
+.topbar nav a { padding: 7px 14px; border-radius: 999px; text-decoration: none; color: var(--ink-soft); font-size: 0.97rem; white-space: nowrap; }
+.topbar nav a:hover { color: var(--ink); background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.topbar nav a.is-active { color: var(--accent); font-weight: 700; background: color-mix(in srgb, var(--accent) 16%, var(--tint)); }
+/* nav on the right, wordmark on the left (visible once the hero has scrolled away); on phones the nav scrolls sideways from the left */
+@media (max-width: 860px) { .brand { display: none; } .topbar nav { justify-content: flex-start; } }
+
+/* hero */
+.hero { padding: 72px 0 40px; text-align: center; background: linear-gradient(180deg, var(--tint), var(--bg)); }
+.hero-head { display: flex; align-items: center; justify-content: center; gap: clamp(16px, 3vw, 40px); }
+.hero-head .logo { flex: 0 0 auto; width: clamp(260px, 30vw, 390px); height: auto; mix-blend-mode: multiply; filter: contrast(1.12); }  /* white background: contrast pushes off-white to pure white and multiply lets the tinted hero show through */
+.hero h1 { margin: 0 0 12px; line-height: 1.15; text-align: left; }
+.wordmark { display: block; font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; letter-spacing: -.02em; color: var(--accent); }
+.title { display: block; font-size: clamp(1.2rem, 2.6vw, 1.9rem); font-weight: 600; max-width: 22em; margin: 6px 0 0; }
+@media (prefers-color-scheme: dark) { .hero-head .logo { filter: contrast(1.12) invert(1); mix-blend-mode: screen; } }
+@media (max-width: 860px) {
+  .hero-head { flex-direction: column; text-align: center; }
+  .hero h1 { text-align: center; }
+  .title { margin-inline: auto; }
+}
+.authors-anon { margin: 22px 0 2px; font-size: 1.1rem; color: var(--ink-soft); }
+.status { margin: 0 0 24px; font-size: .95rem; color: var(--ink-soft); }
+.authors { list-style: none; padding: 0; margin: 22px 0 6px; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 18px; }
+.authors a { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--line); }
+.affiliations { list-style: none; padding: 0; margin: 0 0 8px; font-size: .9rem; color: var(--ink-soft); display: flex; flex-wrap: wrap; justify-content: center; gap: 2px 16px; }
+.links { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 8px; }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 999px; background: var(--accent); color: var(--accent-ink); text-decoration: none; font-weight: 600; border: 1px solid transparent; }
+.btn svg { width: 18px; height: 18px; }
+.btn:hover { filter: brightness(1.08); }
+.btn-light { background: transparent; color: var(--accent); border-color: var(--accent); }
+.btn-soon { background: var(--bg-alt); color: var(--soon); border-color: var(--line); cursor: default; }
+.btn-soon:hover { filter: none; }
+.soon { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; border: 1px solid var(--line); border-radius: 999px; padding: 1px 7px; }
+.soon-inline { color: var(--soon); font-weight: 600; }
+
+/* teaser and sections */
+.teaser { padding: 24px 0 56px; }
+.teaser h2 { text-align: center; font-size: clamp(1.4rem, 3.4vw, 2rem); margin: 0 0 8px; }
+.lede { text-align: center; max-width: 46em; margin: 0 auto 24px; color: var(--ink-soft); }
+.section { padding: 56px 0; }
+.section.alt { background: var(--bg-alt); }
+.section-title { font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0 0 20px; line-height: 1.2; }
+h3 { margin: 28px 0 10px; font-size: 1.15rem; }
+.figure { margin: 0; }
+.figure img { border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+figcaption { margin-top: 8px; font-size: .92rem; color: var(--ink-soft); }
+.placeholder { border: 2px dashed var(--line); border-radius: var(--radius); padding: 28px 20px; text-align: center; color: var(--ink-soft); background: color-mix(in srgb, var(--tint) 45%, var(--bg)); }
+.placeholder.small { padding: 40px 12px; font-size: .95rem; }
+.placeholder p { margin: 0; }
+.grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.card { background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; }
+.card h3 { margin: 6px 0; }
+.card p { margin: 0; font-size: .95rem; color: var(--ink-soft); }
+.num { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: .9rem; }
+.table { width: 100%; border-collapse: collapse; margin: 14px 0; }
+.table th, .table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+.table th { font-size: .85rem; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+.note { font-size: .9rem; color: var(--ink-soft); }
+pre { background: var(--bg-alt); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; overflow-x: auto; margin: 12px 0; }
+.alt pre { background: var(--bg); }
+.bibbox { position: relative; }
+.bibbox .copy { position: absolute; top: 20px; right: 10px; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); cursor: pointer; font: inherit; font-size: .85rem; }
+.bibbox .copy:hover { border-color: var(--accent); }
+.footer { padding: 28px 0 48px; text-align: center; color: var(--ink-soft); font-size: .92rem; border-top: 1px solid var(--line); }
+.footer .small { font-size: .8rem; }
+
+@media (max-width: 860px) {
+  .grid3, .cards { grid-template-columns: 1fr; }
+  .hero { padding-top: 48px; }
+}
