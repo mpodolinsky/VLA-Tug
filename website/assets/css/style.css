@@ -47,12 +47,19 @@ code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospac
 .hero-head { display: flex; align-items: center; justify-content: center; gap: clamp(16px, 3vw, 40px); }
 .hero-head .logo { flex: 0 0 auto; width: clamp(260px, 30vw, 390px); height: auto; mix-blend-mode: multiply; filter: contrast(1.12); }  /* white background: contrast pushes off-white to pure white and multiply lets the tinted hero show through */
 .hero h1 { margin: 0 0 12px; line-height: 1.15; text-align: left; }
-.wordmark { display: block; font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; letter-spacing: -.02em; color: var(--accent); }
+.wordmark { display: flex; align-items: center; font-size: clamp(2.6rem, 6vw, 4.4rem); font-weight: 900; letter-spacing: -.02em; color: var(--accent); line-height: 1.15; }
+.w-vla, .w-tug { display: inline-block; will-change: transform; }
+/* the hyphen is a small rope between the two words; main.js draws it and animates the tow (the Tug pulls on the VLA) */
+.rope { flex: none; width: .62em; height: .5em; overflow: visible; margin-top: .06em; }
+.rope path { fill: none; stroke-linecap: round; }
+.rope-base { stroke: var(--accent); }
+.rope-twist { stroke: var(--tint); }
 .title { display: block; font-size: clamp(1.2rem, 2.6vw, 1.9rem); font-weight: 600; max-width: 22em; margin: 6px 0 0; }
 @media (prefers-color-scheme: dark) { .hero-head .logo { filter: contrast(1.12) invert(1); mix-blend-mode: screen; } }
 @media (max-width: 860px) {
   .hero-head { flex-direction: column; text-align: center; }
   .hero h1 { text-align: center; }
+  .wordmark { justify-content: center; }
   .title { margin-inline: auto; }
 }
 .authors-anon { margin: 22px 0 2px; font-size: 1.1rem; color: var(--ink-soft); }

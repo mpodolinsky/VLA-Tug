@@ -17,6 +17,8 @@ website/
 cd website && python -m http.server 8000     # then open http://localhost:8000
 ```
 
+The title animation (the Tug pulls the VLA by a rope, a 5.2 s loop drawn by `assets/js/main.js`) is a pure function of time: `index.html?t=2.4` freezes it at second 2.4. It does not move with `prefers-reduced-motion`.
+
 ## Deploy (GitHub Pages)
 
 Serve the `website/` folder: either copy it to the root of a `<name>.github.io` repository, or publish it with a GitHub Actions Pages workflow (`actions/upload-pages-artifact` with `path: website`). The page uses relative paths only, so it works from any sub-path.
