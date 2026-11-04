@@ -10,6 +10,7 @@ site_export/
   episodes.py     the random draw of the episodes, and the page's record of one episode
   embeddings.py   the principal-axis views (three layers of the probe): sampled points, class Gaussians, an episode's path
   videos.py       checks the videos (browser-ready, length) and copies them next to the page
+  main_table.py   the paper's main table (means with standard deviations, and the number of runs per setting) as HTML, written into the Results section
 ```
 
 ## What the figure shows
@@ -58,5 +59,13 @@ website/media/rollouts/<id>/           agent.mp4 and wrist.mp4
 
 Every per-step list has one entry per policy step, and the video length is checked against the episode's control steps, because the page maps video
 time to policy steps with `step_seconds` (replan steps / control rate).
+
+## The main table
+
+```bash
+python -m site_export.main_table          # reads results/figures/table_main_std.tex (python -m cli.figures), rewrites the table in website/index.html
+```
+
+The page takes the paper's table itself, so every mean, every standard deviation and every bold (best) and italic (second best) mark is the paper's; only the markup changes (our row is shaded and called VLA-Tug). The row under the setting names says how many runs a setting averages (seeds, or folds for the skill split, or seeds x folds on the real robot); it is counted from the splits found under `results/`, not typed in. The table lies between two comment markers of `website/index.html`; running the command again replaces what is between them.
 
 Tests: `pytest tests/test_site_export.py`.

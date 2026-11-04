@@ -5,7 +5,7 @@ import pytest
 
 from fp.data.manifest import Episode
 from fp.data.splits import Split
-from site_export import embeddings, episodes, videos
+from site_export import embeddings, episodes, main_table, videos
 from site_export.calibrate import Alarm
 
 
@@ -72,3 +72,60 @@ def test_only_h264_yuv420p_videos_are_copied_unchanged():
     assert videos.browser_ready({"codec": "h264", "pix_fmt": "yuv420p"})
     assert not videos.browser_ready({"codec": "mpeg4", "pix_fmt": "yuv420p"})
     assert not videos.browser_ready({"codec": "h264", "pix_fmt": "yuv444p"})
+
+
+TEX = r"""\begin{tabular}{llrrrrrr}
+\toprule
+ & & \multicolumn{2}{c}{LIBERO-10 $\pi_{0.5}$} & \multicolumn{2}{c}{Real robot} & \multicolumn{2}{c}{Cost (LIBERO-X)} \\
+Method & Cal. & Seen & Unseen & Seen & Unseen & Fit (s) & GPU (ms) \\
+\midrule
+SAFE-LSTM & FC & \textbf{75.5{\scriptsize$\pm$13.4}} & 34.9{\scriptsize$\pm$3.5} & \textit{44.5{\scriptsize$\pm$13.5}} & 25.1{\scriptsize$\pm$18.8} & 43.5 & 0.066 \\
+STAC & MC & 33.8{\scriptsize$\pm$5.1} & 36.4{\scriptsize$\pm$5.3} & -- & -- & \textbf{0.0} & 21.30 \\
+\midrule
+\rowcolor{gray!15} Ours (onset\_pre) & MC & \textit{75.1{\scriptsize$\pm$12.5}} & \textbf{47.9{\scriptsize$\pm$20.9}} & \textbf{47.6{\scriptsize$\pm$10.9}} & \textbf{25.8{\scriptsize$\pm$9.0}} & 6.8 & 0.12 \\
+\bottomrule
+\end{tabular}"""
+RUNS = {"LIBERO-10 π0.5": "3 seeds", "Real robot": "5 seeds × 8 folds"}
+LEVELS = {"LIBERO-10 π0.5": "*"}
+
+
+def test_the_table_of_the_paper_is_read_with_its_marks_deviations_and_dashes(tmp_path):
+    path = tmp_path / "table_main_std.tex"
+    path.write_text(TEX)
+    settings, costs, rows = main_table.read_table(path)
+    assert settings == ["LIBERO-10 π0.5", "Real robot"] and costs == ["Fit (s)", "GPU (ms)"]
+    assert [r.label for r in rows] == ["SAFE-LSTM", "STAC", "Ours (onset_pre)"] and [r.ours for r in rows] == [False, False, True]
+    assert rows[0].cells[0] == main_table.Cell("75.5", "13.4", "best") and rows[0].cells[2] == main_table.Cell("44.5", "13.5", "second")
+    assert rows[0].cells[1] == main_table.Cell("34.9", "3.5", None) and rows[0].cells[4] == main_table.Cell("43.5", None, None)
+    assert rows[1].cells[2] == main_table.Cell(None) and rows[1].cells[4] == main_table.Cell("0.0", None, "best")
+
+
+def test_the_html_table_keeps_values_marks_and_deviations_and_lists_the_runs(tmp_path):
+    path = tmp_path / "table_main_std.tex"
+    path.write_text(TEX)
+    out = main_table.render(*main_table.read_table(path), RUNS, LEVELS)
+    assert out.count("<tr") == 4 + 3 and '<tr class="ours"><th scope="row">VLA-Tug (ours)</th>' in out
+    assert '<td class="best">75.5<span class="sd">&plusmn;13.4</span></td>' in out and '<td class="second">44.5<span class="sd">&plusmn;13.5</span></td>' in out
+    assert "<td>34.9<span class=\"sd\">&plusmn;3.5</span></td>" in out and "<td>&ndash;</td>" in out and '<td class="best">0.0</td>' in out
+    assert '<tr class="runs"><td colspan="2">3 seeds</td><td colspan="2">5 seeds × 8 folds</td><td colspan="2"></td></tr>' in out
+    assert '<tr class="difficulty"><td colspan="2">difficulty *</td><td colspan="2"></td><td colspan="2"></td></tr>' in out and 'rowspan="4"' in out
+    assert "Ours (onset_pre)" not in out and main_table.CAPTION in out
+
+
+def test_what_the_runs_of_a_setting_are_comes_from_the_names_of_its_splits():
+    assert main_table.describe(["paper_seed0", "paper_seed1", "paper_seed2"]) == "3 seeds"
+    assert main_table.describe(["task_seed0", "task_seed2"]) == "2 seeds"
+    assert main_table.describe(["skill_articulate_open", "skill_stack_objects", "skill_place_on_surface"]) == "3 folds"
+    real = [f"loto_{t}" for t in ("basket", "pineapple_out_of_drawer")] + [f"lotoseed{k}_{t}" for k in (1, 2, 3, 4) for t in ("basket", "pineapple_out_of_drawer")]
+    assert main_table.describe(real) == "5 seeds × 2 folds"
+
+
+def test_the_table_is_written_between_the_markers_and_rewritten_in_place(tmp_path):
+    page = tmp_path / "index.html"
+    page.write_text(f"<main>\n{main_table.START}\nold\n{main_table.END}\n</main>")
+    main_table.write_into(page, "<table>one</table>")
+    main_table.write_into(page, "<table>two</table>")
+    assert page.read_text() == f"<main>\n{main_table.START}\n<table>two</table>\n{main_table.END}\n</main>"
+    page.write_text("<main></main>")
+    with pytest.raises(ValueError):
+        main_table.write_into(page, "<table></table>")

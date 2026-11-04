@@ -113,3 +113,20 @@ pre { background: var(--bg-alt); border: 1px solid var(--line); border-radius: v
   .grid3, .cards { grid-template-columns: 1fr; }
   .hero { padding-top: 48px; }
 }
+
+/* the main results table (written into index.html by python -m site_export.main_table) */
+#results > .wrap { width: min(1440px, 100% - 32px); }
+.table-wrap { margin: 16px 0 28px; overflow-x: auto; }
+.results-table { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.results-table caption { padding: 0 0 10px; text-align: left; font-size: .85rem; color: var(--ink-soft); white-space: normal; caption-side: top; }
+.results-table th, .results-table td { padding: 4px 6px; text-align: right; border-bottom: 1px solid var(--line); }
+.results-table thead th { text-align: center; font-weight: 600; color: var(--ink-soft); }
+.results-table thead tr:first-child th[colspan] { border-bottom: 0; }
+.results-table tr.runs td, .results-table tr.difficulty td { padding: 1px 8px 3px; text-align: center; font-size: .72rem; color: var(--ink-soft); border-bottom: 0; }
+.results-table tr.difficulty td { padding-bottom: 5px; border-bottom: 1px solid var(--ink-soft); } /* the rows under a setting name: its runs, its difficulty */
+.results-table .sd { margin-left: 3px; font-size: .78em; font-weight: 400; font-style: normal; color: var(--ink-soft); } /* the standard deviation after a mean */
+.results-table th[scope="row"], .results-table td:nth-child(2), .results-table th[rowspan] { text-align: left; }
+.results-table th[scope="row"] { font-weight: 600; }
+.results-table td.best { font-weight: 700; }
+.results-table td.second { font-style: italic; }
+.results-table tr.ours th, .results-table tr.ours td { background: var(--tint); border-top: 2px solid var(--line); }
