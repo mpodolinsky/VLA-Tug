@@ -6,16 +6,25 @@ A static page (HTML, one CSS file, one small JS file; no build step) with the us
 website/
   index.html            all sections; every TODO is marked in the page or in a comment
   assets/css/style.css  light and dark theme, responsive
-  assets/js/main.js     sticky top bar, section highlight, BibTeX copy button (the page works without it)
-  assets/img/           favicon.svg, overview.png (the framework figure of the README)
+  assets/css/demo.css   the interactive demo only (episode picker, the flow panel (a), the runtime panel (b))
+  assets/js/main.js     sticky top bar, section highlight, BibTeX copy button, the title animation (the page works without it)
+  assets/js/demo/       the interactive demo: index.js (wiring, playback), embedding.js (2D/3D canvas), timeline.js (scores), colors.js
+  assets/img/           favicon.svg, logo.webp, overview.png (the framework figure of the README)
+  data/                 the demo's data, written by site_export (index.json, episodes/, embeddings/): do not edit by hand
+  media/rollouts/       the demo's videos, written by site_export
   media/video/          put the overview video here
 ```
+
+The interactive demo reads `data/` and `media/rollouts/`, which `python -m site_export.export` writes from the saved runs (see `site_export/README.md`;
+it is outside `website/` so that only served files are deployed). To show other episodes, run it with another `--seed` or `--split`.
 
 ## Preview
 
 ```bash
-cd website && python -m http.server 8000     # then open http://localhost:8000
+cd website && python -m http.server 8000     # then open http://localhost:8000 (the demo needs http; it does not load from a file:// address)
 ```
+
+In the demo the three embedding views start in 3D and turn slowly (a full turn takes about 30 s; dragging a view pauses it, and visitors who ask for reduced motion get no automatic turn). The two head views are zoomed in on the dense core of their data (`data-trim` in `index.html`; the chosen episode's path always stays inside).
 
 The title animation (the Tug pulls the VLA by a rope, a 5.2 s loop drawn by `assets/js/main.js`) is a pure function of time: `index.html?t=2.4` freezes it at second 2.4. It does not move with `prefers-reduced-motion`.
 

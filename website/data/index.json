@@ -1,0 +1,125 @@
+{
+  "dataset": "liberox_groot",
+  "split": "task_seed0",
+  "unseen_episodes": 430,
+  "step_seconds": 0.4,
+  "mode_names": [
+    "wrong_object",
+    "stuck_or_no_progress",
+    "wrong_target",
+    "object_displacement",
+    "placement_or_insertion_failure",
+    "grasp_failure",
+    "open_close_failure",
+    "press_failure",
+    "other",
+    "timeout_or_insufficient_progress"
+  ],
+  "operating_point": {
+    "fpr": 0.15,
+    "tpr_early": 0.15,
+    "calibration_episodes": 174
+  },
+  "selection": {
+    "seed": 0,
+    "successes": 1,
+    "failures": 2,
+    "from": "the unseen episodes of the split"
+  },
+  "methods": {
+    "ours": {
+      "label": "VLA-Tug",
+      "configuration": "lstm_modes_clip__onset_pre",
+      "calibration": "Learn-then-Test: FPR \u2264 15% and early TPR \u2265 15%, confidence 90%",
+      "certified": true,
+      "rates": {
+        "calibration": {
+          "fpr": 1.4,
+          "tpr_early": 26.5,
+          "episodes": 174
+        },
+        "unseen": {
+          "fpr": 7.0,
+          "tpr_early": 29.6,
+          "episodes": 430
+        }
+      }
+    },
+    "safe_lstm": {
+      "label": "SAFE-LSTM",
+      "configuration": "safe_lstm__lr1e-3_reg1e-2",
+      "calibration": "SAFE functional conformal band, FPR level 15%",
+      "certified": true,
+      "rates": {
+        "calibration": {
+          "fpr": 13.9,
+          "tpr_early": 59.8,
+          "episodes": 174
+        },
+        "unseen": {
+          "fpr": 37.5,
+          "tpr_early": 55.7,
+          "episodes": 430
+        }
+      }
+    },
+    "stac": {
+      "label": "STAC",
+      "configuration": "stac__mmd3_step",
+      "calibration": "max-conformal, FPR level 15%",
+      "certified": true,
+      "rates": {
+        "calibration": {
+          "fpr": 13.9,
+          "tpr_early": 23.5,
+          "episodes": 174
+        },
+        "unseen": {
+          "fpr": 15.5,
+          "tpr_early": 23.9,
+          "episodes": 430
+        }
+      }
+    }
+  },
+  "layers": [
+    {
+      "name": "lstm",
+      "title": "LSTM state",
+      "file": "data/embeddings/lstm.json"
+    },
+    {
+      "name": "score_head",
+      "title": "Failure score head",
+      "file": "data/embeddings/score_head.json"
+    },
+    {
+      "name": "mode_head",
+      "title": "Failure mode head",
+      "file": "data/embeddings/mode_head.json"
+    }
+  ],
+  "episodes": [
+    {
+      "id": "ep1",
+      "file": "data/episodes/ep1.json",
+      "instruction": "place the yellow bowl to the right of the bowl drainer",
+      "success": true,
+      "mode": null
+    },
+    {
+      "id": "ep2",
+      "file": "data/episodes/ep2.json",
+      "instruction": "place the cream cheese in the smallest bowl",
+      "success": false,
+      "mode": "wrong_target"
+    },
+    {
+      "id": "ep3",
+      "file": "data/episodes/ep3.json",
+      "instruction": "place the red mug into the back desk caddy's right compartment",
+      "success": false,
+      "mode": "object_displacement"
+    }
+  ]
+}

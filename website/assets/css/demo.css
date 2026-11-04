@@ -1,0 +1,157 @@
+/* The interactive demo (assets/js/demo/): the episode picker, panel (a) with the flow of the probe as in the paper's overview figure,
+   and panel (b) with the rollout and the scores of the three methods. The colours come from the variables of style.css. */
+
+.demo > .wrap { width: min(1360px, 100% - 32px); } /* wider than the text column */
+.section.demo { padding: 36px 0 44px; }
+.demo .section-title { margin-bottom: 6px; }
+.demo .lede { margin-bottom: 14px; }
+.demo-error { padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-alt); }
+.legend-markers { margin: 10px 0 2px; }
+
+/* ---- episode picker ---------------------------------------------------------------------------------------------------------- */
+.demo-episodes { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 10px; margin: 6px 0 12px; }
+.demo-episode { display: flex; align-items: center; gap: 10px; padding: 8px 12px; text-align: left; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); cursor: pointer; }
+.demo-episode:hover { border-color: var(--accent); }
+.demo-episode[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; background: var(--tint); }
+.demo-instruction { font-size: .88rem; line-height: 1.3; color: var(--ink-soft); }
+.badge { flex: none; padding: 2px 9px; font-size: .78rem; font-weight: 700; color: #fff; border-radius: 999px; }
+.badge.ok { background: #2f6fd1; }
+.badge.fail { background: #c0392b; }
+
+/* ---- playback bar at the top of the demo (sticky, so it stays in reach while the flow is scrolled) -------------------------------- */
+.demo-bar { position: sticky; top: var(--topbar-h); z-index: 5; display: flex; align-items: center; gap: 14px; margin: 0 0 12px; padding: 5px 14px; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(6px); border: 1px solid var(--line); border-radius: var(--radius); }
+.demo-bar .btn { min-width: 76px; justify-content: center; padding: 6px 14px; font: inherit; font-size: .92rem; font-weight: 600; border: 0; cursor: pointer; }
+.demo-bar input[type="range"] { flex: 1; accent-color: var(--accent); }
+.demo-bar .demo-time { margin: 0; min-width: 9.5em; text-align: right; }
+
+/* ---- panels ------------------------------------------------------------------------------------------------------------------ */
+.demo-panel { margin: 0; padding: 12px 14px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); }
+.demo-panel + .demo-panel { margin-top: 14px; }
+.demo-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; margin: 0 0 10px; font-size: 1.05rem; color: var(--ink); }
+.demo-toolbar { display: flex; align-items: center; gap: 12px; }
+.demo-segment { display: inline-flex; }
+.demo-segment button { padding: 5px 12px; font: inherit; font-size: .9rem; color: var(--ink-soft); background: var(--bg); border: 1px solid var(--line); cursor: pointer; }
+.demo-segment button:first-child { border-radius: 999px 0 0 999px; }
+.demo-segment button:last-child { border-radius: 0 999px 999px 0; margin-left: -1px; }
+.demo-segment button:hover { border-color: var(--accent); }
+.demo-segment button[aria-pressed="true"] { font-weight: 600; color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+
+/* ---- panel (a): the flow ---------------------------------------------------------------------------------------------------- */
+.flow { display: grid; gap: 8px; }
+.node { position: relative; min-width: 0; padding: 6px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); }
+.node > b, .node-head > b, .overlay > b { display: block; font-size: .86rem; line-height: 1.25; }
+.node small { color: var(--ink-soft); }
+.node-text { margin: 3px 0 0; font-size: .76rem; color: var(--ink-soft); }
+.node-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.node-head .node-text { margin: 0; font-size: .72rem; }
+.readout { margin: 4px 0 0; font-size: .76rem; font-variant-numeric: tabular-nums; }
+.arrow { font-size: 1.5rem; line-height: 1; color: var(--accent); }
+
+/* inputs -> VLA -> action chunk, and the backbone embedding that enters VLA-Tug */
+.flow-top { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 34px; } /* room for the embedding arrow below the VLA box */
+.inputs { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; }
+#flow-instruction { display: flex; align-items: center; box-sizing: border-box; min-height: 72px; } /* as tall as the images beside it */
+.input-view { margin: 0; font-size: .66rem; text-align: center; color: var(--ink-soft); }
+.input-view canvas { display: block; width: 72px; height: 72px; background: #000; border: 1px solid var(--line); border-radius: 6px; }
+.chip { max-width: 24em; padding: 3px 10px; font-size: .76rem; background: var(--bg-alt); border: 1px solid var(--line); border-radius: 6px; }
+.vla { position: relative; display: flex; align-items: center; gap: 12px; padding: 16px 14px 12px; border: 1px solid var(--line); border-radius: var(--radius); }
+.vla-label { position: absolute; top: -11px; left: 12px; padding: 0 6px; font-size: .78rem; font-weight: 700; background: var(--bg); }
+/* the arrow comes down from the centre of the Backbone node, through the label, into the VLA-Tug box */
+.embedding { position: absolute; top: calc(100% + 17px); left: 50%; display: flex; align-items: center; gap: 10px; margin: 0; font-size: .8rem; font-weight: 400; white-space: nowrap; transform: translateX(-.42em); }
+.embedding .squares { display: inline-flex; gap: 2px; }
+.embedding .squares i { width: 14px; height: 14px; background: var(--bg-alt); border: 1px solid var(--ink-soft); }
+
+/* the dashed VLA-Tug box: encoder, latent failure space, the two heads, the trigger, the predicted mode */
+.vtug { position: relative; display: grid; gap: 16px; padding: 16px 10px 8px; background: var(--tint); border: 2px dashed var(--accent); border-radius: var(--radius); }
+.vtug-label { position: absolute; top: -13px; right: 18px; padding: 0 8px; font-weight: 800; color: var(--accent); background: var(--bg); }
+.encoder { padding-block: 5px; text-align: center; }
+.encoder > b, .encoder small { display: inline; }
+.encoder small::before { content: " \00b7\00a0"; }
+.encoder::after { content: "\2193"; position: absolute; left: 26%; bottom: -22px; transform: translateX(-50%); font-size: 1.5rem; line-height: 1; color: var(--accent); }
+.vtug-body { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1fr); gap: 60px; align-items: stretch; }
+.demo-embedding { display: block; width: 100%; aspect-ratio: 1 / 1; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; touch-action: pan-y; cursor: grab; }
+.demo-legend { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 2px 8px; margin: 6px 0 2px; font-size: .7rem; line-height: 1.25; }
+.legend-item::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 4px; background: var(--swatch); border-radius: 50%; }
+.legend-variance { grid-column: 1 / -1; margin-top: 2px; font-size: .66rem; color: var(--ink-soft); }
+
+.vstack { display: flex; flex-direction: column; }
+.down { height: 14px; text-align: center; font-size: 1.3rem; line-height: 14px; color: var(--accent); }
+.on-alarm { display: flex; flex-direction: column; align-items: center; height: 20px; font-size: .76rem; font-style: italic; color: var(--ink-soft); }
+.on-alarm::after { content: ""; flex: 1; border-left: 2px dashed var(--accent); }
+.head::after { content: "\2192"; position: absolute; left: -48px; top: 50%; width: 40px; transform: translateY(-50%); text-align: center; font-size: 1.5rem; line-height: 1; color: var(--accent); }
+
+/* an embedding node: the plot is the background of the whole box, the title, readout and legend lie over it (clicks pass through to the plot) */
+.embed-node { padding: 0; }
+.embed-node .demo-embedding { position: absolute; inset: 0; width: 100%; height: 100%; aspect-ratio: auto; border: 0; border-radius: var(--radius); }
+.overlay { position: absolute; left: 6px; z-index: 1; max-width: calc(100% - 12px); padding: 4px 7px; background: color-mix(in srgb, var(--bg) 82%, transparent); border-radius: 8px; pointer-events: none; }
+.overlay-top { top: 6px; }
+.overlay-bottom { right: 6px; bottom: 6px; }
+.overlay-right { top: 6px; right: 6px; left: auto; width: 280px; } /* a long legend goes at the side, where the data leaves room */
+.demo-legend-column { grid-template-columns: repeat(2, 1fr); }
+.overlay-narrow { width: 190px; }
+.overlay-narrow .demo-legend-column { grid-template-columns: 1fr; }
+.overlay .demo-legend { margin: 0; }
+.overlay .readout { margin: 2px 0 0; }
+.latent { min-height: 340px; } /* its height is that of the right column */
+.head.embed-node { aspect-ratio: 5.6 / 1; }
+.head-long-legend.embed-node { aspect-ratio: 4.2 / 1; } /* room for its legend */
+.flow.is-3d .head.embed-node { aspect-ratio: 3.8 / 1; } /* a rotating sphere needs more height than a flat plot */
+
+.trigger-row { display: grid; grid-template-columns: minmax(150px, 36%) 1fr; gap: 14px; align-items: center; margin-top: 4px; }
+.trigger-status { margin: 0; padding: 5px 6px; text-align: center; font-size: .84rem; font-weight: 800; text-wrap: balance; color: var(--ink-soft); background: var(--bg-alt); border: 1px solid var(--line); border-radius: 8px; }
+.gauge { position: relative; height: 12px; background: var(--bg-alt); border: 1px solid var(--line); border-radius: 7px; }
+.gauge-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: var(--accent); border-radius: 7px; }
+.gauge-mark { position: absolute; top: -4px; bottom: -4px; left: 100%; width: 3px; margin-left: -1px; background: var(--ink); border-radius: 2px; }
+.flow.is-alarm .trigger-status { color: #1c1c4a; background: #ffb000; border-color: #d99500; }
+.flow.is-alarm .on-alarm { font-weight: 700; color: var(--ink); }
+.flow:not(.is-alarm) .after-alarm { opacity: .5; } /* what happens on an alarm waits for it */
+
+#demo-modes-rows { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 18px; }
+.mode-row { display: grid; grid-template: "name value" auto "bar bar" auto / 1fr auto; gap: 2px 8px; margin: 3px 0 0; font-size: .74rem; }
+.mode-name { grid-area: name; }
+.mode-value { grid-area: value; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.mode-bar { grid-area: bar; height: 8px; background: linear-gradient(90deg, var(--c) var(--w), var(--bg-alt) var(--w)); border: 1px solid var(--line); border-radius: 5px; }
+
+.flow-foot { display: grid; grid-template-columns: minmax(0, .85fr) minmax(0, 1fr); gap: 60px; align-items: start; margin: 0 16px; }
+.flow-caption { margin: 0; align-self: center; font-size: .85rem; }
+.expert { border-style: dashed; text-align: center; }
+.expert > b, .expert small { display: inline; }
+.expert small::before { content: " \00b7\00a0"; }
+.flow.is-alarm .expert { border-color: #d99500; }
+
+.mk { display: inline-block; vertical-align: middle; width: 12px; height: 12px; margin-right: 3px; box-sizing: border-box; }
+.mk-now { border: 3px solid var(--ink); border-radius: 50%; }
+.mk-alarm { border: 2.5px solid #ffb000; border-radius: 50%; }
+.mk-onset { width: auto; height: auto; font-weight: 800; line-height: 1; color: #d6433b; }
+.mk-alarm-tri { width: 0; height: 0; border-left: 6px solid transparent; border-right: 6px solid transparent; border-bottom: 10px solid #ffb000; }
+.mk-band { width: 16px; background: rgba(214, 67, 59, .25); border-right: 2px dashed #d6433b; }
+
+/* ---- panel (b): the rollout and the scores of the three methods ------------------------------------------------------------- */
+.runtime { display: grid; grid-template-columns: minmax(300px, .62fr) 1.7fr; gap: 28px; align-items: start; }
+.demo-videos { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.demo-videos figure { margin: 0; }
+.demo-videos video { display: block; width: 100%; aspect-ratio: 1 / 1; background: #000; border-radius: 8px; }
+.demo-videos figcaption { font-size: .85rem; text-align: center; }
+.demo-time { font-variant-numeric: tabular-nums; }
+.runtime-video .note { margin: 8px 0 0; }
+.demo-timeline { display: block; width: 100%; margin-top: 8px; cursor: ew-resize; touch-action: pan-y; }
+.demo-footnote { margin-top: 10px; font-size: .82rem; }
+
+/* ---- narrower screens: the flow reads top to bottom ---------------------------------------------------------------------------- */
+@media (max-width: 1000px) {
+  .vtug-body, .flow-foot { grid-template-columns: 1fr; gap: 24px; }
+  .head::after { display: none; }
+  .flow-foot { margin: 0; }
+  .latent { aspect-ratio: 1.25 / 1; }
+  .flow-top { flex-direction: column; align-items: flex-start; }
+  .flow-top > .arrow { margin-left: 14px; transform: rotate(90deg); }
+}
+@media (max-width: 860px) {
+  .runtime { grid-template-columns: 1fr; }
+  .latent { aspect-ratio: 1 / 1; }
+  .head.embed-node, .flow.is-3d .head.embed-node { aspect-ratio: 4 / 3; }
+  .head-long-legend.embed-node, .flow.is-3d .head-long-legend.embed-node { aspect-ratio: 5 / 6; } /* its legend is a strip at the bottom here, so the box needs the height */
+  .overlay-right, .overlay-narrow { top: auto; bottom: 8px; left: 8px; width: auto; }
+  .overlay-narrow .demo-legend-column { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); } /* on a narrow screen the side legend becomes a strip at the bottom */
+  .demo-legend-column { grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); }
+}

@@ -14,7 +14,9 @@
   <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/demo.css">
   <script src="assets/js/main.js" defer></script>
+  <script type="module" src="assets/js/demo/index.js"></script>
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -23,6 +25,7 @@
   <div class="wrap topbar-inner">
     <a class="brand" href="#top">VLA-Tug</a>
     <nav aria-label="Sections">
+      <a href="#demo">Demo</a>
       <a href="#video">Video</a>
       <a href="#abstract">Abstract</a>
       <a href="#method">Method</a>
@@ -88,6 +91,121 @@
       <img src="assets/img/overview.png" alt="Overview of VLA-Tug: the probe on the VLA's latent layers, its three heads, and the calibrated alarm.">
       <figcaption><b>Overview.</b> We introduce VLA-Tug, a probe on the VLA backbone embeddings that predicts failures and their mode. (a) A recurrent encoder maps the embedding into a latent failure space; a score head and a calibrated trigger raise the alarm, and a mode head then predicts the failure mode. (b) VLA-Tug alarms before the failure, allowing early stopping or intervention by an expert model.</figcaption>
     </figure>
+  </div>
+</section>
+
+<section class="section demo" id="demo" aria-labelledby="demo-title">
+  <div class="wrap">
+    <h2 class="section-title" id="demo-title">Interactive demo</h2>
+    <p class="lede">Choose a rollout of an unseen task and play it. The probe's state, the scores of three methods and the predicted failure mode follow the video.</p>
+    <p id="demo-error" class="demo-error" hidden>The demo could not load its data. Serve this folder over http (for example <code>python -m http.server</code> in <code>website/</code>) instead of opening the file directly.</p>
+    <noscript><p class="demo-error">The interactive demo needs JavaScript.</p></noscript>
+
+    <div class="demo-episodes" id="demo-episodes" role="group" aria-label="Rollouts"></div>
+
+    <div class="demo-bar" role="group" aria-label="Playback">
+      <button type="button" id="demo-play-top" class="btn">Play</button>
+      <input type="range" id="demo-seek-top" min="0" max="1" step="0.01" value="0" aria-label="Position in the rollout">
+      <span id="demo-time-top" class="demo-time"></span>
+    </div>
+
+    <figure class="demo-panel">
+      <figcaption class="demo-head">
+        <span><b>(a)</b> VLA-Tug: from the backbone embedding to the alarm and the predicted failure mode</span>
+        <span class="demo-toolbar">
+          <span id="demo-hint" class="note">The views turn slowly; drag one to turn it yourself, double-click to reset.</span>
+          <span class="demo-segment" role="group" aria-label="Dimensions">
+            <button type="button" data-view="2d" aria-pressed="false">2D</button><button type="button" data-view="3d" aria-pressed="true">3D</button>
+          </span>
+        </span>
+      </figcaption>
+      <div class="flow is-3d" id="demo-flow">
+        <div class="flow-top">
+          <div class="inputs" aria-label="Inputs of the VLA">
+            <figure class="input-view"><canvas id="flow-agent" width="160" height="160" role="img" aria-label="Agent-view image at the current step"></canvas><figcaption>Agent view</figcaption></figure>
+            <figure class="input-view"><canvas id="flow-wrist" width="160" height="160" role="img" aria-label="Wrist-view image at the current step"></canvas><figcaption>Wrist view</figcaption></figure>
+            <span class="chip" id="flow-instruction">Instruction</span>
+          </div>
+          <span class="arrow" aria-hidden="true">&rarr;</span>
+          <div class="vla">
+            <span class="vla-label">VLA</span>
+            <div class="node"><b>Backbone</b><p class="embedding"><span class="arrow" aria-hidden="true">&darr;</span><span class="squares" aria-hidden="true"><i></i><i></i><i></i></span> Backbone embedding <small id="flow-step"></small></p></div>
+            <span class="arrow" aria-hidden="true">&rarr;</span>
+            <div class="node"><b>Action expert</b></div>
+          </div>
+          <span class="arrow" aria-hidden="true">&rarr;</span>
+          <span>Action chunk</span>
+        </div>
+
+        <div class="vtug">
+          <span class="vtug-label">VLA-Tug</span>
+          <div class="node encoder"><b>Latent state encoder</b><small>LSTM</small></div>
+          <div class="vtug-body">
+            <section class="node embed-node latent" aria-label="Latent failure space">
+              <canvas class="demo-embedding" data-layer="lstm" role="img" aria-label="Principal-axis view of the LSTM state with the path of the chosen rollout"></canvas>
+              <div class="overlay overlay-top"><b>Latent failure space</b></div>
+              <div class="overlay overlay-bottom"><div class="demo-legend" data-legend="lstm"></div></div>
+            </section>
+            <div class="vstack">
+              <section class="node embed-node head" aria-label="Failure score head">
+                <canvas class="demo-embedding" data-layer="score_head" data-trim="0.07" role="img" aria-label="Principal-axis view of the failure score head's hidden layer with the path of the chosen rollout"></canvas>
+                <div class="overlay overlay-top"><b>Failure score head</b><small>MLP</small><p class="readout" id="demo-score-readout"></p></div>
+                <div class="overlay overlay-right overlay-narrow"><div class="demo-legend demo-legend-column" data-legend="score_head"></div></div>
+              </section>
+              <span class="down" aria-hidden="true">&darr;</span>
+              <section class="node" aria-label="Calibrated trigger">
+                <div class="node-head"><b>Calibrated trigger</b><span id="demo-trigger-text" class="node-text"></span></div>
+                <div class="trigger-row">
+                  <p id="demo-trigger-status" class="trigger-status">No alarm</p>
+                  <div>
+                    <div class="gauge" role="img" aria-label="The failure score against the alarm threshold"><span id="gauge-fill" class="gauge-fill"></span><span id="gauge-mark" class="gauge-mark"></span></div>
+                    <p id="demo-trigger-values" class="readout"></p>
+                  </div>
+                </div>
+              </section>
+              <div class="on-alarm after-alarm" aria-hidden="true"><span>on alarm</span></div>
+              <section class="node embed-node head head-long-legend after-alarm" aria-label="Failure mode head">
+                <canvas class="demo-embedding" data-layer="mode_head" data-trim="0.07" role="img" aria-label="Principal-axis view of the failure mode head's hidden layer (failures only) with the path of the chosen rollout"></canvas>
+                <div class="overlay overlay-top"><b>Failure mode head</b><small>MLP</small></div>
+                <div class="overlay overlay-right"><div class="demo-legend demo-legend-column" data-legend="mode_head"></div></div>
+              </section>
+              <span class="down after-alarm" aria-hidden="true">&darr;</span>
+              <section class="node after-alarm" aria-label="Predicted failure mode">
+                <div class="node-head"><b>Predicted failure mode <small>top 3</small></b><span id="demo-modes-state" class="node-text"></span></div>
+                <div id="demo-modes-rows"></div>
+              </section>
+            </div>
+          </div>
+        </div>
+
+        <div class="flow-foot">
+          <p class="flow-caption"><b>VLA-Tug</b> probes the VLA's backbone embedding and maps it into a latent failure space.</p>
+          <div class="vstack after-alarm">
+            <span class="down" aria-hidden="true">&darr;</span>
+            <section class="node expert"><b>Expert model</b><small>early stop or intervention</small></section>
+          </div>
+        </div>
+      </div>
+      <p class="note legend-markers"><span class="mk mk-now"></span> current step &nbsp; <span class="mk mk-alarm"></span> VLA-Tug alarm &nbsp; <span class="mk mk-onset">&times;</span> annotated failure time</p>
+    </figure>
+
+    <figure class="demo-panel demo-runtime">
+      <figcaption class="demo-head"><span><b>(b)</b> Runtime failure detection</span></figcaption>
+      <div class="runtime">
+        <div class="runtime-video">
+          <div class="demo-videos">
+            <figure><video id="demo-agent" muted playsinline preload="auto" aria-label="Agent-view video of the rollout"></video><figcaption>Agent view</figcaption></figure>
+            <figure><video id="demo-wrist" muted playsinline preload="auto" aria-label="Wrist-view video of the rollout"></video><figcaption>Wrist view</figcaption></figure>
+          </div>
+          <p id="demo-annotation" class="note"></p>
+        </div>
+        <div class="runtime-plot">
+          <canvas id="demo-timeline" class="demo-timeline" role="img" aria-label="Scores of VLA-Tug, SAFE-LSTM and STAC over time, with thresholds, alarms and the annotated failure time"></canvas>
+          <p class="note legend-markers"><span class="mk mk-alarm-tri"></span> alarm &nbsp; dashed line: calibrated threshold &nbsp; <span class="mk mk-band"></span> annotated failure time and the on-time window before it</p>
+        </div>
+      </div>
+    </figure>
+    <p id="demo-note" class="note demo-footnote"></p>
   </div>
 </section>
 
