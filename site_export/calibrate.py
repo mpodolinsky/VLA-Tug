@@ -39,20 +39,22 @@ class Alarm:
         return np.full(n_steps, np.inf) if self.threshold is None else self.threshold[:n_steps]
 
 
-def calibrate(kind: str, label: str, method: str, scores: Mapping[str, np.ndarray], split: Split, episodes: Mapping[str, Episode], window: int) -> Alarm:
-    """``kind`` is 'ltt', 'safe_band' or 'max_conformal'; the calibrator is fitted on the calibration episodes of ``split`` and nothing else."""
+def calibrate(kind: str, label: str, method: str, scores: Mapping[str, np.ndarray], split: Split, episodes: Mapping[str, Episode], window: int,
+              fpr: float = FPR_TARGET, tpr_early: float = TPR_EARLY_TARGET) -> Alarm:
+    """``kind`` is 'ltt', 'safe_band' or 'max_conformal'; the calibrator is fitted on the calibration episodes of ``split`` and nothing else, at the operating point
+    (``fpr``, ``tpr_early``): the false-positive-rate level of all three, and the early true-positive-rate target of Learn-then-Test."""
     run = ltt_compare.prepare(scores, split, episodes, window)
     longest = max(len(s) for s in scores.values())
     if kind == "ltt":
-        tau = ltt_compare.ltt_threshold(run, TPR_EARLY_TARGET, FPR_TARGET, DELTA, ltt_compare.N_STARTS)
+        tau = ltt_compare.ltt_threshold(run, tpr_early, fpr, DELTA, ltt_compare.N_STARTS)
         threshold = None if tau is None else np.full(longest, tau)
-        text = f"Learn-then-Test: FPR ≤ {FPR_TARGET:.0%} and early TPR ≥ {TPR_EARLY_TARGET:.0%}, confidence {1 - DELTA:.0%}"
+        text = f"Learn-then-Test: FPR ≤ {fpr:.0%} and early TPR ≥ {tpr_early:.0%}, confidence {1 - DELTA:.0%}"
     elif kind == "safe_band":
-        threshold = run.safe_band.threshold(FPR_TARGET, longest)
-        text = f"SAFE functional conformal band, FPR level {FPR_TARGET:.0%}"
+        threshold = run.safe_band.threshold(fpr, longest)
+        text = f"SAFE functional conformal band, FPR level {fpr:.0%}"
     elif kind == "max_conformal":
-        threshold = np.full(longest, float(run.max_conformal.threshold(FPR_TARGET, 1)[0]))
-        text = f"max-conformal, FPR level {FPR_TARGET:.0%}"
+        threshold = np.full(longest, float(run.max_conformal.threshold(fpr, 1)[0]))
+        text = f"max-conformal, FPR level {fpr:.0%}"
     else:
         raise ValueError(f"unknown calibration {kind!r}")
     return Alarm(label, method, text, threshold)

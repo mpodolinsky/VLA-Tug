@@ -1,8 +1,6 @@
 {
-  "version": "bd577f7c7a",
+  "version": "89c3bf9501",
   "dataset": "liberox_groot",
-  "split": "signature_seed2",
-  "unseen_episodes": 560,
   "step_seconds": 0.4,
   "mode_names": [
     "wrong_object",
@@ -16,98 +14,183 @@
     "other",
     "timeout_or_insufficient_progress"
   ],
-  "operating_point": {
-    "fpr": 0.15,
-    "tpr_early": 0.15,
-    "calibration_episodes": 163
-  },
-  "unseen_kind": "new task signatures: familiar components in a new combination",
   "selection": {
-    "keys": [
-      "LEVEL1/44_EXTENSION_KITCHEN_SCENE42_place_the_red_mug_in_the_basket/ep008",
-      "LEVEL3/32_EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove/ep007",
-      "LEVEL3/63_EXTENSION_KITCHEN_SCENE9_LEVEL3__T55_place_the_black_bowl_to_the_right_of_the_bowl_drainer/ep008"
-    ],
-    "criteria": "one success in which VLA-Tug stays silent while SAFE-LSTM raises a false alarm (at 4.4 s; STAC stays silent too), and two failures that VLA-Tug flags as they start or before (at 4.4 s and 14.4 s): in the first STAC and SAFE-LSTM flag the failure much later (at 32.8 s and 22.8 s), in the second STAC never flags it and SAFE-LSTM flags it first, at 2.4 s.",
-    "from": "the unseen episodes of the split"
+    "criteria": "one success in which VLA-Tug stays silent while SAFE-LSTM raises a false alarm (at 4.4 s), and two failures that VLA-Tug flags: in the stove episode as the failure starts (4.4 s) while STAC and SAFE-LSTM flag it much later (32.8 s and 22.8 s), in the white-bowl episode 7.2 s before the failure (19.2 s), where STAC flags it 1.6 s later and SAFE-LSTM first, at 1.2 s.",
+    "from": "the unseen episodes of the split of each episode"
   },
-  "methods": {
-    "ours": {
-      "label": "VLA-Tug",
-      "configuration": "lstm_modes_clip__onset_pre",
-      "calibration": "Learn-then-Test: FPR \u2264 15% and early TPR \u2265 15%, confidence 90%",
-      "certified": true,
-      "rates": {
-        "calibration": {
-          "fpr": 2.9,
-          "tpr_early": 43.2,
-          "episodes": 163
+  "settings": {
+    "s1": {
+      "split": "signature_seed2",
+      "description": "new task signatures: familiar components in a new combination",
+      "operating_point": {
+        "fpr": 0.15,
+        "tpr_early": 0.15,
+        "calibration_episodes": 163
+      },
+      "unseen_episodes": 560,
+      "methods": {
+        "ours": {
+          "label": "VLA-Tug",
+          "configuration": "lstm_modes_clip__onset_pre",
+          "calibration": "Learn-then-Test: FPR \u2264 15% and early TPR \u2265 15%, confidence 90%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 2.9,
+              "tpr_early": 43.2,
+              "episodes": 163
+            },
+            "unseen": {
+              "fpr": 7.0,
+              "tpr_early": 30.8,
+              "episodes": 560
+            }
+          }
         },
-        "unseen": {
-          "fpr": 7.0,
-          "tpr_early": 30.8,
-          "episodes": 560
+        "safe_lstm": {
+          "label": "SAFE-LSTM",
+          "configuration": "safe_lstm__lr1e-3_reg1e-2",
+          "calibration": "SAFE functional conformal band, FPR level 15%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 13.2,
+              "tpr_early": 47.4,
+              "episodes": 163
+            },
+            "unseen": {
+              "fpr": 16.1,
+              "tpr_early": 46.5,
+              "episodes": 560
+            }
+          }
+        },
+        "stac": {
+          "label": "STAC",
+          "configuration": "stac__mmd3_step",
+          "calibration": "max-conformal, FPR level 15%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 14.7,
+              "tpr_early": 14.7,
+              "episodes": 163
+            },
+            "unseen": {
+              "fpr": 15.7,
+              "tpr_early": 28.6,
+              "episodes": 560
+            }
+          }
         }
-      }
+      },
+      "layers": [
+        {
+          "name": "lstm",
+          "title": "LSTM state",
+          "file": "data/embeddings/s1/lstm.json"
+        },
+        {
+          "name": "score_head",
+          "title": "Failure score head",
+          "file": "data/embeddings/s1/score_head.json"
+        },
+        {
+          "name": "mode_head",
+          "title": "Failure mode head",
+          "file": "data/embeddings/s1/mode_head.json"
+        }
+      ]
     },
-    "safe_lstm": {
-      "label": "SAFE-LSTM",
-      "configuration": "safe_lstm__lr1e-3_reg1e-2",
-      "calibration": "SAFE functional conformal band, FPR level 15%",
-      "certified": true,
-      "rates": {
-        "calibration": {
-          "fpr": 13.2,
-          "tpr_early": 47.4,
-          "episodes": 163
+    "s2": {
+      "split": "skill_place_on_surface",
+      "description": "a new skill: place on surface",
+      "operating_point": {
+        "fpr": 0.3,
+        "tpr_early": 0.45,
+        "calibration_episodes": 158
+      },
+      "unseen_episodes": 590,
+      "methods": {
+        "ours": {
+          "label": "VLA-Tug",
+          "configuration": "lstm_modes_clip__onset_pre",
+          "calibration": "Learn-then-Test: FPR \u2264 30% and early TPR \u2265 45%, confidence 90%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 12.1,
+              "tpr_early": 62.0,
+              "episodes": 158
+            },
+            "unseen": {
+              "fpr": 24.2,
+              "tpr_early": 44.5,
+              "episodes": 590
+            }
+          }
         },
-        "unseen": {
-          "fpr": 16.1,
-          "tpr_early": 46.5,
-          "episodes": 560
-        }
-      }
-    },
-    "stac": {
-      "label": "STAC",
-      "configuration": "stac__mmd3_step",
-      "calibration": "max-conformal, FPR level 15%",
-      "certified": true,
-      "rates": {
-        "calibration": {
-          "fpr": 14.7,
-          "tpr_early": 14.7,
-          "episodes": 163
+        "safe_lstm": {
+          "label": "SAFE-LSTM",
+          "configuration": "safe_lstm__lr1e-3_reg1e-2",
+          "calibration": "SAFE functional conformal band, FPR level 30%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 28.8,
+              "tpr_early": 69.6,
+              "episodes": 158
+            },
+            "unseen": {
+              "fpr": 58.1,
+              "tpr_early": 80.3,
+              "episodes": 590
+            }
+          }
         },
-        "unseen": {
-          "fpr": 15.7,
-          "tpr_early": 28.6,
-          "episodes": 560
+        "stac": {
+          "label": "STAC",
+          "configuration": "stac__mmd3_step",
+          "calibration": "max-conformal, FPR level 30%",
+          "certified": true,
+          "rates": {
+            "calibration": {
+              "fpr": 30.3,
+              "tpr_early": 33.7,
+              "episodes": 158
+            },
+            "unseen": {
+              "fpr": 24.2,
+              "tpr_early": 30.0,
+              "episodes": 590
+            }
+          }
         }
-      }
+      },
+      "layers": [
+        {
+          "name": "lstm",
+          "title": "LSTM state",
+          "file": "data/embeddings/s2/lstm.json"
+        },
+        {
+          "name": "score_head",
+          "title": "Failure score head",
+          "file": "data/embeddings/s2/score_head.json"
+        },
+        {
+          "name": "mode_head",
+          "title": "Failure mode head",
+          "file": "data/embeddings/s2/mode_head.json"
+        }
+      ]
     }
   },
-  "layers": [
-    {
-      "name": "lstm",
-      "title": "LSTM state",
-      "file": "data/embeddings/lstm.json"
-    },
-    {
-      "name": "score_head",
-      "title": "Failure score head",
-      "file": "data/embeddings/score_head.json"
-    },
-    {
-      "name": "mode_head",
-      "title": "Failure mode head",
-      "file": "data/embeddings/mode_head.json"
-    }
-  ],
   "episodes": [
     {
       "id": "ep1",
       "file": "data/episodes/ep1.json",
+      "setting": "s1",
       "instruction": "place the red mug in the basket",
       "success": true,
       "mode": null
@@ -115,6 +198,7 @@
     {
       "id": "ep2",
       "file": "data/episodes/ep2.json",
+      "setting": "s1",
       "instruction": "turn off the flat stove",
       "success": false,
       "mode": "wrong_object"
@@ -122,9 +206,10 @@
     {
       "id": "ep3",
       "file": "data/episodes/ep3.json",
-      "instruction": "place the black bowl to the right of the bowl drainer",
+      "setting": "s2",
+      "instruction": "place the white bowl onto the plate that is on top of the cabinet",
       "success": false,
-      "mode": "grasp_failure"
+      "mode": "placement_or_insertion_failure"
     }
   ]
 }

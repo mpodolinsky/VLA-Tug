@@ -15,9 +15,10 @@ site_export/
 
 ## What the figure shows
 
-For one split of one dataset (default: `task_seed0` of LIBERO-X, whose unseen episodes are new tasks; the page uses `signature_seed2`, whose unseen
-episodes are new task signatures), for **unseen** episodes that are either drawn at random (default: seed 0, one success and two failures;
-`episodes.select`) or listed by hand with `--keys` (`episodes.chosen`, which refuses an episode that is not unseen):
+For **unseen** episodes of LIBERO-X that are either drawn at random from one split (default: `task_seed0`, seed 0, one success and two failures;
+`episodes.select`) or listed by hand (`episodes.chosen`, which refuses an episode that is not unseen). The episodes can come from **several splits**: each
+group of episodes has its own split and operating point (see `set.json` below), and the page shows, under every episode, its split and calibration
+targets, and switches the embedding spaces, the legends and the calibration text to those of the episode's split:
 
 * the probe's state in its first three principal axes, for three layers (LSTM state, failure-score head, failure-mode head), with a sample of the
   training steps, one Gaussian per class and the path of the chosen episode;
@@ -46,7 +47,7 @@ python -m site_export.export --list          # the episodes that are drawn (or t
 python -m site_export.export --videos <folder with <episode key>/rollout.mp4 and wrist.mp4>
 ```
 
-`--dataset`, `--split`, `--seed`, `--successes`, `--failures`, `--keys`, `--criteria`, `--results` and `--out` change the draw and the folders. The videos of the
+`--dataset`, `--set`, `--split`, `--fpr`, `--tpr-early`, `--seed`, `--successes`, `--failures`, `--keys`, `--criteria`, `--results` and `--out` change the draw and the folders. The videos of the
 released datasets are listed by `--list`; their pooled features and annotations are what the saved runs were trained on. The principal axes of a split
 come from `python -m cli.tsne --embedding probe --reducer pca --fit-set train_pre --split <split> --layer hidden|score_hidden|mode_hidden --out results/pca3_train`
 (one run per layer), which has to be run once for every split the page shows.
@@ -60,30 +61,32 @@ colour. An episode without notes shows neither. Times of alarms in a note should
 
 ### The episodes of the page
 
-The page shows three episodes of `signature_seed2` that were **selected**, not drawn: a success in which VLA-Tug stays silent while SAFE-LSTM raises a false
-alarm (STAC stays silent too), and two failures that VLA-Tug flags as they start or before: in the first STAC and SAFE-LSTM flag the failure much later, in the
-second STAC never flags it and SAFE-LSTM flags it first, at 2.4 s. They were found by listing, for every unseen episode of the LIBERO-X splits, the outcome of each
-method at its calibrated threshold, and then looking at the videos: episodes in which an object flies away, is knocked off or is carried by the gripper by mistake
-(simulator glitches or erratic motion) were left out, and so were successes that end before the task is visibly done. They illustrate the signal and are not typical:
-over all 560 unseen episodes of the split the three methods give the false-positive and early true-positive rates the page prints under the figure. The page says
-this under the figure (`--criteria`). The command is
+The page shows three **selected** (not drawn) unseen episodes from two splits, listed in `set.json`: the red mug in the basket (a success in which VLA-Tug stays
+silent while SAFE-LSTM raises a false alarm) and a stove failure from `signature_seed2` at false-positive rate 15% / early true-positive rate 15%, and a failure
+from `skill_place_on_surface` at 30% / 45% (the white bowl onto the plate on the cabinet), because that episode is unseen only in the skill split. Each group is
+calibrated on its own split, so the thresholds, the embedding spaces and the whole-split rates differ between the groups; the page says so in the note under
+the figure and writes the split and the calibration targets under each episode. The episodes were found by listing, for every unseen episode of the LIBERO-X
+splits, the outcome of each method at its calibrated threshold, and then looking at the videos: episodes in which an object flies away, is knocked off or is carried
+by the gripper by mistake (simulator glitches or erratic motion) were left out, and so were successes that end before the task is visibly done. They illustrate the
+signal and are not typical.
+
+`set.json` is `{"criteria": "<one sentence the page shows>", "groups": [{"split": ..., "fpr": 0.15, "tpr_early": 0.15, "keys": [...]}]}`; the command is
 
 ```bash
-python -m site_export.export --split signature_seed2 --videos <folder> \
-  --keys "LEVEL1/44_EXTENSION_KITCHEN_SCENE42_place_the_red_mug_in_the_basket/ep008" \
-         "LEVEL3/32_EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove/ep007" \
-         "LEVEL3/63_EXTENSION_KITCHEN_SCENE9_LEVEL3__T55_place_the_black_bowl_to_the_right_of_the_bowl_drainer/ep008" \
-  --criteria "one success in which VLA-Tug stays silent while SAFE-LSTM raises a false alarm (at 4.4 s; STAC stays silent too), and two failures that VLA-Tug flags as they start or before (at 4.4 s and 14.4 s): in the first STAC and SAFE-LSTM flag the failure much later (at 32.8 s and 22.8 s), in the second STAC never flags it and SAFE-LSTM flags it first, at 2.4 s."
+python -m site_export.export --set site_export/set.json --videos <folder with <episode key>/rollout.mp4 and wrist.mp4>
 ```
+
+The principal axes of a split come from `python -m cli.tsne --embedding probe --reducer pca --fit-set train_pre --split <split> --layer hidden|score_hidden|mode_hidden --out results/pca3_train`
+(one run per layer), which has to be run once for every split the page shows (here `signature_seed2` and `skill_place_on_surface`).
 
 ## Output
 
 ```
-website/data/index.json                one record: the operating point, the methods, the layers, the episodes, a content version
-                                       (the page adds it to the URL of every file, so that a new export with the same file names is not served from the cache)
-website/data/episodes/<id>.json        one episode: per-step scores, thresholds, alarm steps, mode probabilities, embedding paths, video info, the task's signature
-                                       (from data/<dataset>/splits/splits.csv, LIBERO-X only) and whether it is an unseen signature
-website/data/embeddings/<layer>.json   one layer: class Gaussians and a sample of training points
+website/data/index.json                one record: the settings (one per split: its operating point, methods with calibration text and rates, layers), the episodes,
+                                       a content version (the page adds it to the URL of every file, so that a new export with the same file names is not served from the cache)
+website/data/episodes/<id>.json        one episode: its setting, per-step scores, thresholds, alarm steps, mode probabilities, embedding paths, video info, the task's
+                                       signature (from data/<dataset>/splits/splits.csv, LIBERO-X only) and what is novel in it (unseen signature or unseen skill)
+website/data/embeddings/<setting>/<layer>.json   one layer of the probe of a split: class Gaussians and a sample of training points
 website/media/rollouts/<id>/           agent.mp4 and wrist.mp4
 ```
 

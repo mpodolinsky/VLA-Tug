@@ -1,0 +1,22 @@
+{
+  "criteria": "one success in which VLA-Tug stays silent while SAFE-LSTM raises a false alarm (at 4.4 s), and two failures that VLA-Tug flags: in the stove episode as the failure starts (4.4 s) while STAC and SAFE-LSTM flag it much later (32.8 s and 22.8 s), in the white-bowl episode 7.2 s before the failure (19.2 s), where STAC flags it 1.6 s later and SAFE-LSTM first, at 1.2 s.",
+  "groups": [
+    {
+      "split": "signature_seed2",
+      "fpr": 0.15,
+      "tpr_early": 0.15,
+      "keys": [
+        "LEVEL1/44_EXTENSION_KITCHEN_SCENE42_place_the_red_mug_in_the_basket/ep008",
+        "LEVEL3/32_EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove/ep007"
+      ]
+    },
+    {
+      "split": "skill_place_on_surface",
+      "fpr": 0.3,
+      "tpr_early": 0.45,
+      "keys": [
+        "LEVEL2/24_EXTENSION_KITCHEN_SCENE28_place_the_white_bowl_onto_the_plate_that_is_on_top_of_the_cabinet/ep002"
+      ]
+    }
+  ]
+}

@@ -22,6 +22,8 @@ const element = (tag, className, text) => {
   return node;
 };
 const percent = (r) => `${r.fpr.toFixed(1)}% / ${r.tpr_early.toFixed(1)}%`;
+// a short name of a split, for the card of an episode: "New skill: place on surface", "New task signatures", "New tasks"
+const splitLabel = (split) => (split.startsWith("skill_") ? `New skill: ${split.slice(6).replaceAll("_", " ")}` : split.startsWith("signature_") ? "New task signatures" : "New tasks");
 
 async function main() {
   const root = $("demo");
@@ -46,7 +48,8 @@ async function main() {
   };
   for (const video of [agent, wrist]) for (const type of ["loadeddata", "seeked"]) video.addEventListener(type, drawInputs);
   const timeline = new Timeline($("demo-timeline"), (t) => goTo(t));
-  const views = new Map(index.layers.map((l) => [l.name, new EmbeddingView(document.querySelector(`canvas[data-layer="${l.name}"]`))]));
+  const layerNames = Object.values(index.settings)[0].layers.map((l) => l.name);
+  const views = new Map(layerNames.map((name) => [name, new EmbeddingView(document.querySelector(`canvas[data-layer="${name}"]`))]));
   const episodes = new Map();
   let episode = null, playing = false;
 
@@ -56,7 +59,9 @@ async function main() {
     const button = element("button", "demo-episode");
     button.type = "button";
     button.dataset.id = e.id;
-    button.append(element("span", `badge ${e.success ? "ok" : "fail"}`, e.success ? "Success" : `Failure: ${humanise(e.mode)}`), element("span", "demo-instruction", e.instruction));
+    const instruction = element("span", "demo-instruction", e.instruction);
+    instruction.append(element("span", "demo-split", splitLabel(index.settings[e.setting].split)));
+    button.append(element("span", `badge ${e.success ? "ok" : "fail"}`, e.success ? "Success" : `Failure: ${humanise(e.mode)}`), instruction);
     button.addEventListener("click", () => selectEpisode(e.id));
     picker.append(button);
   }
@@ -70,11 +75,24 @@ async function main() {
     wrist.src = versioned(episode.video.wrist);
     seek.max = episode.video.duration;
     $("demo-annotation").textContent = episode.success ? "Annotated outcome: success" : `Annotated failure: ${humanise(episode.mode)}, at ${(episode.onset_step * episode.step_seconds).toFixed(1)} s`;
+    await showSetting(episode.setting);
     const signature = $("demo-signature");
     signature.replaceChildren();
-    if (episode.signature) {
-      signature.append(element("b", "", episode.signature_unseen ? "Novel task structure (unseen signature): " : "Task structure (signature): "), element("code", "", episode.signature));
-    }
+    if (episode.novelty) signature.append(element("b", "", episode.novelty.label), element("code", "", episode.novelty.value));
+    // under the episode: its split and the calibration targets, and what the three methods do on all the unseen episodes of the split
+    const setting = index.settings[episode.setting], m = setting.methods, rates = (k) => (m[k].rates ? `${m[k].label} ${percent(m[k].rates.unseen)}` : `${m[k].label} (no certified threshold)`);
+    const lines = $("demo-setting");
+    lines.replaceChildren(
+      ...[
+        ["Split: ", `${setting.split}, ${setting.description} (${setting.unseen_episodes} unseen episodes)`],
+        ["Calibration targets: ", `VLA-Tug with ${m.ours.calibration}; SAFE-LSTM with ${m.safe_lstm.calibration}; STAC with ${m.stac.calibration}; fitted on the ${setting.operating_point.calibration_episodes} calibration episodes of seen tasks`],
+        ["On all unseen episodes of the split (false-positive rate / early true-positive rate): ", `${rates("ours")}, ${rates("safe_lstm")}, ${rates("stac")}`],
+      ].map(([label, text]) => {
+        const line = element("div", "demo-setting-line");
+        line.append(element("b", "", label), document.createTextNode(text));
+        return line;
+      }),
+    );
     $("flow-instruction").textContent = `Instruction: ${episode.instruction}`;
     timeline.setEpisode(episode);
     const notes = episode.callouts || [], list = $("demo-callouts");
@@ -91,21 +109,32 @@ async function main() {
     goTo(0);
   }
 
-  // ---- the three layers -----------------------------------------------------------------------------------------------------
-  await Promise.all(index.layers.map(async (l) => {
-    const layer = await fetchJson(versioned(l.file));
-    const variance = layer.explained_variance.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(", ");
-    document.querySelector(`[data-legend="${l.name}"]`).replaceChildren(
-      ...layer.classes.map((c) => {
-        const item = element("span", "legend-item", `${humanise(c.name)} (${c.episodes})`);
-        item.style.setProperty("--swatch", CLASS_COLORS[c.name] || "#888");
-        return item;
-      }),
-      element("span", "legend-variance", `axes: ${variance} of the variance`),
-    );
-    views.get(l.name).setLayer(layer);
-    views.get(l.name).resize(); // the legend lies over the plot: measure it, so that the data stays clear of it
-  }));
+  // ---- the three layers of the probe of an episode's split -----------------------------------------------------------------------
+  // Every episode comes from its own split, with its own probe: the three embedding spaces, their legends and the calibration are those of the split, and are
+  // loaded the first time an episode of the split is shown.
+  const layerCache = new Map();
+  let shownSetting = null;
+  async function showSetting(id) {
+    if (shownSetting === id) return;
+    const setting = index.settings[id];
+    if (!layerCache.has(id)) layerCache.set(id, await Promise.all(setting.layers.map((l) => fetchJson(versioned(l.file)))));
+    setting.layers.forEach((l, i) => {
+      const layer = layerCache.get(id)[i];
+      const variance = layer.explained_variance.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(", ");
+      document.querySelector(`[data-legend="${l.name}"]`).replaceChildren(
+        ...layer.classes.map((c) => {
+          const item = element("span", "legend-item", `${humanise(c.name)} (${c.episodes})`);
+          item.style.setProperty("--swatch", CLASS_COLORS[c.name] || "#888");
+          return item;
+        }),
+        element("span", "legend-variance", `axes: ${variance} of the variance`),
+      );
+      views.get(l.name).setLayer(layer);
+      views.get(l.name).resize(); // the legend lies over the plot: measure it, so that the data stays clear of it
+    });
+    $("demo-trigger-text").textContent = setting.methods.ours.calibration;
+    shownSetting = id;
+  }
 
   // 3D is the default (the page markup starts with the 3D switch pressed); 2D is one click away
   for (const view of views.values()) view.setMode3d(true);
@@ -188,16 +217,13 @@ async function main() {
   playButton.addEventListener("click", () => (playing ? pause() : play()));
   seek.addEventListener("input", () => goTo(Number(seek.value)));
 
-  // ---- the trigger's calibration and the note under the figure --------------------------------------------------------------
-  const m = index.methods, rates = (k) => (m[k].rates ? `${m[k].label} ${percent(m[k].rates.unseen)}` : `${m[k].label} (no certified threshold)`);
-  $("demo-trigger-text").textContent = m.ours.calibration;
+  // ---- the note under the figure ---------------------------------------------------------------------------------------------
   $("demo-note").textContent =
-    "Each space is drawn in its first principal axes, fitted on the training episodes; dots are a sample of their steps up to the failure step, outlines one standard deviation of each class, and the line is the chosen rollout. " +
-    `Alarm thresholds are calibrated on the ${index.operating_point.calibration_episodes} calibration episodes of seen tasks: VLA-Tug with ${m.ours.calibration}; SAFE-LSTM with ${m.safe_lstm.calibration}; STAC with ${m.stac.calibration}. ` +
-    `On all ${index.unseen_episodes} unseen episodes of this split (${index.unseen_kind || "new tasks"}) they give a false-positive rate / early true-positive rate of ${rates("ours")}, ${rates("safe_lstm")}, ${rates("stac")}. ` +
+    "Each space is drawn in its first principal axes, fitted on the training episodes of the episode's split; dots are a sample of their steps up to the failure step, outlines one standard deviation of each class, and the line is the chosen rollout. " +
+    "Every episode comes from its own split of LIBERO-X and is calibrated there, at the operating point written under it, so the thresholds, the embedding spaces and the rates differ between episodes. " +
     (index.selection.criteria
-      ? `The ${index.episodes.length} rollouts were selected from those unseen episodes: ${index.selection.criteria} They illustrate the signal and are not typical of all episodes.`
-      : `The ${index.episodes.length} rollouts are a random draw (seed ${index.selection.seed}: ${index.selection.successes} success, ${index.selection.failures} failures) from those unseen episodes, not hand-picked.`);
+      ? `The ${index.episodes.length} rollouts were selected from the unseen episodes of their splits: ${index.selection.criteria} They illustrate the signal and are not typical of all episodes.`
+      : `The ${index.episodes.length} rollouts are a random draw from the unseen episodes of their splits, not hand-picked.`);
 
   await selectEpisode(index.episodes[0].id);
 }

@@ -75,6 +75,34 @@ def test_callouts_are_sorted_by_time_and_must_lie_inside_the_video(tmp_path):
         export.callouts_for(path, "ep", 9.0)  # a note after the end of the video
 
 
+def test_novelty_names_what_is_unseen_in_the_episodes_split():
+    sig = "toggle_appliance_off | stove | - | stove | single"
+    assert export.novelty("signature_seed2", sig, True) == {"label": "Novel task structure (unseen signature): ", "value": sig}
+    assert export.novelty("signature_seed2", sig, False)["label"] == "Task structure (signature): "  # a signature that was trained on is not novel
+    assert export.novelty("skill_place_on_surface", "place_on_surface | bowl | on top of | plate | compound", False) == {"label": "Novel skill (unseen): ", "value": "place_on_surface"}
+    assert export.novelty("task_seed0", sig, False)["label"] == "Task structure (signature): " and export.novelty("task_seed0", None, False) is None
+
+
+def test_the_split_is_described_for_the_page():
+    assert export.split_description("skill_place_on_surface") == "a new skill: place on surface"
+    assert export.split_description("signature_seed1").startswith("new task signatures") and export.split_description("task_seed2") == "new tasks"
+
+
+def test_groups_come_from_a_set_file_with_their_own_operating_points_or_from_the_command_line(tmp_path):
+    import argparse
+
+    config = tmp_path / "set.json"
+    config.write_text('{"criteria": "why", "groups": [{"split": "a", "keys": ["k1"], "fpr": 0.3, "tpr_early": 0.45}, {"split": "b", "keys": ["k2"]}]}')
+    parser = argparse.ArgumentParser()
+    groups, criteria = export.load_groups(argparse.Namespace(set=config), parser)
+    assert criteria == "why" and groups[0]["fpr"] == 0.3 and groups[1]["fpr"] == export.FPR_TARGET and groups[1]["tpr_early"] == export.TPR_EARLY_TARGET
+    config.write_text('{"groups": [{"split": "a"}]}')
+    with pytest.raises(SystemExit):
+        export.load_groups(argparse.Namespace(set=config), parser)  # a group needs keys
+    one, text = export.load_groups(argparse.Namespace(set=None, split="s", fpr=0.2, tpr_early=0.4, keys=["k"], criteria="c"), parser)
+    assert one == [{"split": "s", "fpr": 0.2, "tpr_early": 0.4, "keys": ["k"]}] and text == "c"
+
+
 def test_softmax_rows_sum_to_one_and_keep_the_order():
     p = episodes.softmax(np.array([[1.0, 2.0, 3.0], [0.0, 0.0, 0.0]]))
     assert np.allclose(p.sum(axis=1), 1) and p[0].argmax() == 2 and np.allclose(p[1], 1 / 3)
