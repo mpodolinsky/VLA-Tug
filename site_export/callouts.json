@@ -1,0 +1,11 @@
+{
+  "LEVEL1/44_EXTENSION_KITCHEN_SCENE42_place_the_red_mug_in_the_basket/ep008": [
+    {"time": 4.4, "text": "SAFE false alarm"},
+    {"time": 9.5, "text": "Successfully grasped mug"}
+  ],
+  "LEVEL3/63_EXTENSION_KITCHEN_SCENE9_LEVEL3__T55_place_the_black_bowl_to_the_right_of_the_bowl_drainer/ep008": [
+    {"time": 2.4, "text": "SAFE alarms early"},
+    {"time": 14.4, "text": "VLA-Tug spots that the VLA is headed towards the wrong target and alarms"},
+    {"time": 22.8, "text": "VLA mistakenly attempts to turn the stove on"}
+  ]
+}

@@ -15,7 +15,7 @@ website/
 ```
 
 The interactive demo reads `data/` and `media/rollouts/`, which `python -m site_export.export` writes from the saved runs (see `site_export/README.md`;
-it is outside `website/` so that only served files are deployed). To show other episodes, run it with another `--seed` or `--split`.
+it is outside `website/` so that only served files are deployed). To show other episodes, run it with another `--seed` or `--split`, or list episodes by hand with `--keys` (the page now shows three selected episodes; the note under the figure says so).
 
 ## Preview
 

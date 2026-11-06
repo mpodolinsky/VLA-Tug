@@ -1,4 +1,4 @@
-"""Which episodes the figure shows, and everything the page needs about one of them (as plain lists, ready for JSON)."""
+"""Which episodes the figure shows (a random draw from the unseen ones, or episodes chosen by hand), and everything the page needs about one of them (as plain lists, ready for JSON)."""
 
 import random
 from typing import Mapping
@@ -21,6 +21,16 @@ def select(split: Split, episodes: Mapping[str, Episode], seed: int, n_successes
     successes = [k for k in unseen if episodes[k].success]
     failures = [k for k in unseen if not episodes[k].success]
     return rng.sample(successes, n_successes) + rng.sample(failures, n_failures)
+
+
+def chosen(split: Split, keys: list[str]) -> list[str]:
+    """Episodes picked by hand: each must be an unseen episode of the split (no probe or calibrator has seen its task), and none may be repeated."""
+    if len(set(keys)) != len(keys):
+        raise ValueError("an episode is listed twice")
+    not_unseen = [k for k in keys if k not in split.unseen]
+    if not_unseen:
+        raise ValueError(f"not unseen episodes of this split: {not_unseen}")
+    return list(keys)
 
 
 def softmax(logits: np.ndarray) -> np.ndarray:

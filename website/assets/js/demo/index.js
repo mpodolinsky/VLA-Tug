@@ -6,11 +6,15 @@ import { EmbeddingView } from "./embedding.js";
 import { Timeline } from "./timeline.js";
 
 const $ = (id) => document.getElementById(id);
-const fetchJson = async (path) => {
-  const response = await fetch(path);
+const fetchJson = async (path, revalidate = false) => {
+  const response = await fetch(path, revalidate ? { cache: "no-cache" } : undefined); // index.json is always checked, so a new export is seen at once
   if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
   return response.json();
 };
+// every other data file and video carries the content version of the export (index.json: "version"), so that new episodes with the same file names are not
+// taken from the browser's cache
+let version = "";
+const versioned = (path) => (version ? `${path}?v=${version}` : path);
 const element = (tag, className, text) => {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -24,7 +28,8 @@ async function main() {
   if (!root) return;
   let index;
   try {
-    index = await fetchJson("data/index.json");
+    index = await fetchJson("data/index.json", true);
+    version = index.version || "";
   } catch (error) {
     $("demo-error").hidden = false; // e.g. the page was opened from disk instead of over http
     console.error(error);
@@ -57,16 +62,29 @@ async function main() {
   }
 
   async function selectEpisode(id) {
-    if (!episodes.has(id)) episodes.set(id, await fetchJson(index.episodes.find((e) => e.id === id).file));
+    if (!episodes.has(id)) episodes.set(id, await fetchJson(versioned(index.episodes.find((e) => e.id === id).file)));
     episode = episodes.get(id);
     pause();
     for (const b of picker.children) b.setAttribute("aria-pressed", String(b.dataset.id === id));
-    agent.src = episode.video.agent;
-    wrist.src = episode.video.wrist;
+    agent.src = versioned(episode.video.agent);
+    wrist.src = versioned(episode.video.wrist);
     seek.max = episode.video.duration;
     $("demo-annotation").textContent = episode.success ? "Annotated outcome: success" : `Annotated failure: ${humanise(episode.mode)}, at ${(episode.onset_step * episode.step_seconds).toFixed(1)} s`;
+    const signature = $("demo-signature");
+    signature.replaceChildren();
+    if (episode.signature) {
+      signature.append(element("b", "", episode.signature_unseen ? "Novel task structure (unseen signature): " : "Task structure (signature): "), element("code", "", episode.signature));
+    }
     $("flow-instruction").textContent = `Instruction: ${episode.instruction}`;
     timeline.setEpisode(episode);
+    const notes = episode.callouts || [], list = $("demo-callouts");
+    list.replaceChildren(...notes.map((note, i) => {
+      const item = element("li");
+      item.dataset.time = note.time;
+      item.append(element("span", "callout-n", String(i + 1)), element("span", "callout-t", `${note.time.toFixed(1)} s`), element("span", "callout-text", note.text));
+      return item;
+    }));
+    list.hidden = notes.length === 0;
     for (const [name, view] of views) {
       view.setEpisode({ path: episode.embeddings[name], alarm: episode.methods.ours.alarm_step, onset: episode.onset_step, success: episode.success });
     }
@@ -75,7 +93,7 @@ async function main() {
 
   // ---- the three layers -----------------------------------------------------------------------------------------------------
   await Promise.all(index.layers.map(async (l) => {
-    const layer = await fetchJson(l.file);
+    const layer = await fetchJson(versioned(l.file));
     const variance = layer.explained_variance.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(", ");
     document.querySelector(`[data-legend="${l.name}"]`).replaceChildren(
       ...layer.classes.map((c) => {
@@ -113,6 +131,7 @@ async function main() {
     $("flow-step").textContent = `(policy step ${step + 1} of ${episode.n_steps})`;
     for (const view of views.values()) view.setStep(step);
     timeline.setTime(t);
+    for (const item of $("demo-callouts").children) item.classList.toggle("reached", t >= Number(item.dataset.time)); // the notes the video has reached
     drawInputs();
     showTrigger(step);
     showModes(step);
@@ -175,8 +194,10 @@ async function main() {
   $("demo-note").textContent =
     "Each space is drawn in its first principal axes, fitted on the training episodes; dots are a sample of their steps up to the failure step, outlines one standard deviation of each class, and the line is the chosen rollout. " +
     `Alarm thresholds are calibrated on the ${index.operating_point.calibration_episodes} calibration episodes of seen tasks: VLA-Tug with ${m.ours.calibration}; SAFE-LSTM with ${m.safe_lstm.calibration}; STAC with ${m.stac.calibration}. ` +
-    `On all ${index.unseen_episodes} unseen episodes of this split (new tasks) they give a false-positive rate / early true-positive rate of ${rates("ours")}, ${rates("safe_lstm")}, ${rates("stac")}. ` +
-    `The ${index.episodes.length} rollouts are a random draw (seed ${index.selection.seed}: ${index.selection.successes} success, ${index.selection.failures} failures) from those unseen episodes, not hand-picked.`;
+    `On all ${index.unseen_episodes} unseen episodes of this split (${index.unseen_kind || "new tasks"}) they give a false-positive rate / early true-positive rate of ${rates("ours")}, ${rates("safe_lstm")}, ${rates("stac")}. ` +
+    (index.selection.criteria
+      ? `The ${index.episodes.length} rollouts were selected from those unseen episodes: ${index.selection.criteria} They illustrate the signal and are not typical of all episodes.`
+      : `The ${index.episodes.length} rollouts are a random draw (seed ${index.selection.seed}: ${index.selection.successes} success, ${index.selection.failures} failures) from those unseen episodes, not hand-picked.`);
 
   await selectEpisode(index.episodes[0].id);
 }

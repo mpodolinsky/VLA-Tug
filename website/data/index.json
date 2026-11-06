@@ -1,7 +1,8 @@
 {
+  "version": "bd577f7c7a",
   "dataset": "liberox_groot",
-  "split": "task_seed0",
-  "unseen_episodes": 430,
+  "split": "signature_seed2",
+  "unseen_episodes": 560,
   "step_seconds": 0.4,
   "mode_names": [
     "wrong_object",
@@ -18,12 +19,16 @@
   "operating_point": {
     "fpr": 0.15,
     "tpr_early": 0.15,
-    "calibration_episodes": 174
+    "calibration_episodes": 163
   },
+  "unseen_kind": "new task signatures: familiar components in a new combination",
   "selection": {
-    "seed": 0,
-    "successes": 1,
-    "failures": 2,
+    "keys": [
+      "LEVEL1/44_EXTENSION_KITCHEN_SCENE42_place_the_red_mug_in_the_basket/ep008",
+      "LEVEL3/32_EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove/ep007",
+      "LEVEL3/63_EXTENSION_KITCHEN_SCENE9_LEVEL3__T55_place_the_black_bowl_to_the_right_of_the_bowl_drainer/ep008"
+    ],
+    "criteria": "one success in which VLA-Tug stays silent while SAFE-LSTM raises a false alarm (at 4.4 s; STAC stays silent too), and two failures that VLA-Tug flags as they start or before (at 4.4 s and 14.4 s): in the first STAC and SAFE-LSTM flag the failure much later (at 32.8 s and 22.8 s), in the second STAC never flags it and SAFE-LSTM flags it first, at 2.4 s.",
     "from": "the unseen episodes of the split"
   },
   "methods": {
@@ -34,14 +39,14 @@
       "certified": true,
       "rates": {
         "calibration": {
-          "fpr": 1.4,
-          "tpr_early": 26.5,
-          "episodes": 174
+          "fpr": 2.9,
+          "tpr_early": 43.2,
+          "episodes": 163
         },
         "unseen": {
           "fpr": 7.0,
-          "tpr_early": 29.6,
-          "episodes": 430
+          "tpr_early": 30.8,
+          "episodes": 560
         }
       }
     },
@@ -52,14 +57,14 @@
       "certified": true,
       "rates": {
         "calibration": {
-          "fpr": 13.9,
-          "tpr_early": 59.8,
-          "episodes": 174
+          "fpr": 13.2,
+          "tpr_early": 47.4,
+          "episodes": 163
         },
         "unseen": {
-          "fpr": 37.5,
-          "tpr_early": 55.7,
-          "episodes": 430
+          "fpr": 16.1,
+          "tpr_early": 46.5,
+          "episodes": 560
         }
       }
     },
@@ -70,14 +75,14 @@
       "certified": true,
       "rates": {
         "calibration": {
-          "fpr": 13.9,
-          "tpr_early": 23.5,
-          "episodes": 174
+          "fpr": 14.7,
+          "tpr_early": 14.7,
+          "episodes": 163
         },
         "unseen": {
-          "fpr": 15.5,
-          "tpr_early": 23.9,
-          "episodes": 430
+          "fpr": 15.7,
+          "tpr_early": 28.6,
+          "episodes": 560
         }
       }
     }
@@ -103,23 +108,23 @@
     {
       "id": "ep1",
       "file": "data/episodes/ep1.json",
-      "instruction": "place the yellow bowl to the right of the bowl drainer",
+      "instruction": "place the red mug in the basket",
       "success": true,
       "mode": null
     },
     {
       "id": "ep2",
       "file": "data/episodes/ep2.json",
-      "instruction": "place the cream cheese in the smallest bowl",
+      "instruction": "turn off the flat stove",
       "success": false,
-      "mode": "wrong_target"
+      "mode": "wrong_object"
     },
     {
       "id": "ep3",
       "file": "data/episodes/ep3.json",
-      "instruction": "place the red mug into the back desk caddy's right compartment",
+      "instruction": "place the black bowl to the right of the bowl drainer",
       "success": false,
-      "mode": "object_displacement"
+      "mode": "grasp_failure"
     }
   ]
 }

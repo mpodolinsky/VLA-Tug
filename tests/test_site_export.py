@@ -5,7 +5,7 @@ import pytest
 
 from fp.data.manifest import Episode
 from fp.data.splits import Split
-from site_export import embeddings, episodes, main_table, videos
+from site_export import embeddings, episodes, export, main_table, videos
 from site_export.calibrate import Alarm
 
 
@@ -31,6 +31,48 @@ def test_draw_is_fixed_by_the_seed():
     split, eps = make_split()
     assert episodes.select(split, eps, 3, 1, 2) == episodes.select(split, eps, 3, 1, 2)
     assert any(episodes.select(split, eps, s, 1, 2) != episodes.select(split, eps, 0, 1, 2) for s in range(1, 10))
+
+
+def test_chosen_episodes_must_be_unseen_and_distinct_and_keep_their_order():
+    split, _ = make_split()
+    keys = [split.unseen[3], split.unseen[1]]
+    assert episodes.chosen(split, keys) == keys
+    with pytest.raises(ValueError):
+        episodes.chosen(split, ["s0"])  # a training episode
+    with pytest.raises(ValueError):
+        episodes.chosen(split, [keys[0], keys[0]])
+
+
+def test_the_content_version_changes_when_a_video_or_a_data_file_changes_and_not_otherwise(tmp_path):
+    (tmp_path / "data" / "episodes").mkdir(parents=True)
+    (tmp_path / "data" / "embeddings").mkdir()
+    (tmp_path / "media" / "rollouts" / "ep1").mkdir(parents=True)
+    (tmp_path / "data" / "episodes" / "ep1.json").write_text("{}")
+    (tmp_path / "media" / "rollouts" / "ep1" / "agent.mp4").write_bytes(b"old video")
+    first = export.content_version(tmp_path)
+    assert first == export.content_version(tmp_path) and len(first) == 10
+    (tmp_path / "media" / "rollouts" / "ep1" / "agent.mp4").write_bytes(b"new video")  # same file name, new content
+    assert export.content_version(tmp_path) != first
+
+
+def test_the_signature_table_maps_level_and_task_to_the_signature_and_whether_it_is_held_out(tmp_path):
+    path = tmp_path / "splits.csv"
+    path.write_text("sig,level,file,split_leave_signature_out\n"
+                    "toggle_appliance_off | stove | - | stove | single,LEVEL3,EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove.bddl,test\n"
+                    "place_in_container | bowl | in/inside | basket | single,LEVEL1,EXTENSION_KITCHEN_SCENE5_place_the_red_bowl_in_the_basket.bddl,train\n")
+    table = export.signature_table(path)
+    assert table[("LEVEL3", "EXTENSION_KITCHEN_SCENE32_LEVEL3__T186_turn_off_the_flat_stove")] == ("toggle_appliance_off | stove | - | stove | single", True)
+    assert table[("LEVEL1", "EXTENSION_KITCHEN_SCENE5_place_the_red_bowl_in_the_basket")][1] is False
+    assert export.signature_table(tmp_path / "missing.csv") == {}  # LIBERO-10 has no signatures
+
+
+def test_callouts_are_sorted_by_time_and_must_lie_inside_the_video(tmp_path):
+    path = tmp_path / "callouts.json"
+    path.write_text('{"ep": [{"time": 9.5, "text": " second "}, {"time": 4.4, "text": "first"}]}')
+    assert export.callouts_for(path, "ep", 16.8) == [{"time": 4.4, "text": "first"}, {"time": 9.5, "text": "second"}]
+    assert export.callouts_for(path, "other episode", 16.8) == [] and export.callouts_for(tmp_path / "missing.json", "ep", 16.8) == []
+    with pytest.raises(ValueError):
+        export.callouts_for(path, "ep", 9.0)  # a note after the end of the video
 
 
 def test_softmax_rows_sum_to_one_and_keep_the_order():

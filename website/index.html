@@ -197,8 +197,10 @@
             <figure><video id="demo-wrist" muted playsinline preload="auto" aria-label="Wrist-view video of the rollout"></video><figcaption>Wrist view</figcaption></figure>
           </div>
           <p id="demo-annotation" class="note"></p>
+          <p id="demo-signature" class="note demo-signature"></p>
         </div>
         <div class="runtime-plot">
+          <ol id="demo-callouts" class="demo-callouts" aria-label="Notes on the score timeline" hidden></ol>
           <canvas id="demo-timeline" class="demo-timeline" role="img" aria-label="Scores of VLA-Tug, SAFE-LSTM and STAC over time, with thresholds, alarms and the annotated failure time"></canvas>
           <p class="note legend-markers"><span class="mk mk-alarm-tri"></span> alarm &nbsp; dashed line: calibrated threshold &nbsp; <span class="mk mk-band"></span> annotated failure time and the on-time window before it</p>
         </div>
